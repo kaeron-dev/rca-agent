@@ -8,6 +8,7 @@ volumes:
   tempo-data:
   prometheus-data:
   grafana-data:
+  ollama-data:
 
 services:
 
@@ -20,7 +21,7 @@ services:
       - tempo-data:/var/tempo
     ports:
       - "3200:3200"   # HTTP API — el agente consulta trazas acá
-      - "4317:4317"   # gRPC — recibe spans del OTel Collector
+      - "4317:4317"   # gRPC — recibe spans del open telemetry collector (OTel) Collector
     networks:
       - rca-net
 
@@ -54,5 +55,29 @@ services:
     depends_on:
       - tempo
       - prometheus
+    networks:
+      - rca-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: otel-collector
+    command: [ "--config=/etc/otel-collector-config.yml" ]
+    volumes:
+      - ./infra/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4318:4318"   # HTTP — los servicios Kotlin mandan spans acá
+    depends_on:
+      - tempo
+      - prometheus
+    networks:
+      - rca-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
     networks:
       - rca-net
