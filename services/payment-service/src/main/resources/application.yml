@@ -1,0 +1,19 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: payment-service
+
+services:
+  inventory:
+    url: ${INVENTORY_SERVICE_URL:http://localhost:8083}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
