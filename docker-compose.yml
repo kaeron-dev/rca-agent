@@ -1,5 +1,3 @@
-version: "3.8"
-
 networks:
   rca-net:
     driver: bridge
@@ -11,8 +9,6 @@ volumes:
   ollama-data:
 
 services:
-
-  # ── INFRAESTRUCTURA ──────────────────────────────────────────────────────
 
   tempo:
     image: grafana/tempo:2.6.1
@@ -26,6 +22,11 @@ services:
       - "4317:4317"
     networks:
       - rca-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3200/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -41,6 +42,11 @@ services:
       - "9090:9090"
     networks:
       - rca-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   grafana:
     image: grafana/grafana:11.3.0
@@ -55,8 +61,10 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - tempo
-      - prometheus
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
     networks:
       - rca-net
 
@@ -68,9 +76,12 @@ services:
       - ./infra/otel-collector-config.yml:/etc/otel-collector-config.yml
     ports:
       - "4318:4318"
+      - "13133:13133"
     depends_on:
-      - tempo
-      - prometheus
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
     networks:
       - rca-net
 
@@ -83,8 +94,6 @@ services:
       - ollama-data:/root/.ollama
     networks:
       - rca-net
-
-  # ── KAFKA ────────────────────────────────────────────────────────────────
 
   kafka:
     image: confluentinc/cp-kafka:7.7.0
@@ -104,13 +113,18 @@ services:
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
     networks:
       - rca-net
-
-  # ── SERVICIOS KOTLIN ─────────────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
 
   order-service:
     build:
       context: .
-      dockerfile: services/order-service/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: order-service
     container_name: order-service
     ports:
       - "8081:8081"
@@ -128,15 +142,19 @@ services:
     volumes:
       - ./infra/otel-agent:/otel-agent:ro
     depends_on:
-      - otel-collector
-      - kafka
+      otel-collector:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     networks:
       - rca-net
 
   payment-service:
     build:
       context: .
-      dockerfile: services/payment-service/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: payment-service
     container_name: payment-service
     ports:
       - "8082:8082"
@@ -152,15 +170,19 @@ services:
     volumes:
       - ./infra/otel-agent:/otel-agent:ro
     depends_on:
-      - otel-collector
-      - inventory-service
+      otel-collector:
+        condition: service_started
+      inventory-service:
+        condition: service_started
     networks:
       - rca-net
 
   inventory-service:
     build:
       context: .
-      dockerfile: services/inventory-service/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: inventory-service
     container_name: inventory-service
     ports:
       - "8083:8083"
@@ -175,14 +197,17 @@ services:
     volumes:
       - ./infra/otel-agent:/otel-agent:ro
     depends_on:
-      - otel-collector
+      otel-collector:
+        condition: service_started
     networks:
       - rca-net
 
   notification-service:
     build:
       context: .
-      dockerfile: services/notification-service/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: notification-service
     container_name: notification-service
     ports:
       - "8084:8084"
@@ -198,7 +223,9 @@ services:
     volumes:
       - ./infra/otel-agent:/otel-agent:ro
     depends_on:
-      - otel-collector
-      - kafka
+      otel-collector:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     networks:
       - rca-net
