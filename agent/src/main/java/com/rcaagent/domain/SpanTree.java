@@ -1,5 +1,7 @@
 package com.rcaagent.domain;
 
+import com.rcaagent.domain.validation.DomainGuard;
+
 import java.util.Comparator;
 import java.util.List;
 
@@ -10,6 +12,11 @@ public record SpanTree(
         String traceId,
         List<Span> spans
 ) {
+    public SpanTree {
+        DomainGuard.requireNonBlank(traceId, "traceId");
+        if (spans == null || spans.isEmpty())
+            throw new IllegalArgumentException("spans must not be empty");
+    }
     public Span slowestSpan() {
         return spans.stream()
                 .max(Comparator.comparingLong(Span::durationMs))
