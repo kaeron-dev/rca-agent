@@ -1,19 +1,28 @@
 package com.rcaagent.payment.application
 
 /**
- * Estado compartido para configuracion de demo.
+ * Shared demo state for anomaly injection.
  *
- * LIMITACION ACTUAL (Fase 1):
- * @Volatile garantiza visibilidad entre coroutines del mismo proceso JVM.
- * NO funciona entre multiples pods — cada pod tiene su propia JVM.
+ * LIMITATION (Phase 1-5):
+ * @Volatile guarantees visibility within a single JVM process.
+ * Does NOT work across multiple pods — each pod has its own JVM.
  *
- * SOLUCION PARA PRODUCCION (Fase 5 — Kubernetes):
- * Reemplazar por Redis como estado compartido entre pods:
- *   - LatencyController escribe en Redis key="demo:latency:payment-service"
- *   - PaymentService lee de Redis antes de procesar el pago
- *   - Todos los pods leen el mismo Redis — comportamiento consistente
+ * PRODUCTION SOLUTION (Phase 5 — Kubernetes):
+ * Replace with Redis shared state:
+ *   - LatencyController writes to Redis key="demo:latency:payment-service"
+ *   - ErrorController writes to Redis key="demo:error-rate:payment-service"
+ *   - PaymentService reads from Redis before processing
+ *   - All pods share the same Redis instance
  */
 object DemoConfig {
     @Volatile
     var latencyMs: Long = 0
+
+    /**
+     * Error injection rate — percentage of payments that fail artificially.
+     * Range: 0 (no errors) to 100 (all payments fail).
+     * Used to simulate downstream failures and cascade scenarios.
+     */
+    @Volatile
+    var errorRatePct: Int = 0
 }

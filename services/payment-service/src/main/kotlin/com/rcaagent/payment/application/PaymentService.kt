@@ -4,8 +4,8 @@ import com.rcaagent.payment.domain.Payment
 import com.rcaagent.payment.domain.PaymentStatus
 import com.rcaagent.payment.ports.`in`.ProcessPaymentUseCase
 import com.rcaagent.payment.ports.out.InventoryPort
-import org.springframework.stereotype.Service
 import kotlinx.coroutines.delay
+import org.springframework.stereotype.Service
 import java.util.UUID
 
 @Service
@@ -21,14 +21,18 @@ class PaymentService(
             status  = PaymentStatus.PENDING
         )
 
-        // Aplica latencia artificial si esta configurada (solo para demo)
+        // Inject artificial latency if configured (demo only)
         if (DemoConfig.latencyMs > 0) {
             delay(DemoConfig.latencyMs)
         }
 
-        // TODO Fase 4 — agregar Circuit Breaker con Resilience4j
-        val inventory = inventoryPort.reserveInventory("default-product", 1)
+        // Inject artificial errors if configured (demo only)
+        // Uses thread-safe random to avoid bias in concurrent requests
+        if (DemoConfig.errorRatePct > 0 && (1..100).random() <= DemoConfig.errorRatePct) {
+            return payment.copy(status = PaymentStatus.FAILED)
+        }
 
+        val inventory = inventoryPort.reserveInventory("default-product", 1)
         return if (inventory.reserved)
             payment.copy(status = PaymentStatus.CONFIRMED)
         else
