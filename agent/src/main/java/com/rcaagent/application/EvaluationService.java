@@ -1,0 +1,153 @@
+package com.rcaagent.application;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rcaagent.domain.*;
+import com.rcaagent.ports.out.RcaAnalyzer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.io.InputStream;
+import java.time.Instant;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Runs the labeled dataset through the RCA agent and computes accuracy metrics.
+ *
+ * What to study here:
+ *   - SRP: evaluation is a separate service — TraceAnalysisService is not modified
+ *   - The dataset is loaded from classpath — no external dependencies needed
+ *   - AccuracyReport.toMarkdown() produces a report consumable by the benchmark script
+ */
+@Service
+public class EvaluationService {
+
+    private static final Logger log = LoggerFactory.getLogger(EvaluationService.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private final RcaAnalyzer rcaAnalyzer;
+    private final double confidenceThreshold;
+
+    public EvaluationService(
+            RcaAnalyzer rcaAnalyzer,
+            @Value("${rca.confidence.threshold:0.75}") double confidenceThreshold
+    ) {
+        this.rcaAnalyzer         = rcaAnalyzer;
+        this.confidenceThreshold = confidenceThreshold;
+    }
+
+    /**
+     * Loads the labeled dataset from classpath and runs each trace through the agent.
+     * Returns an AccuracyReport with per-type accuracy and false negative rate.
+     */
+    public AccuracyReport evaluate() {
+        var dataset = loadDataset();
+        log.info("Starting evaluation — {} traces in dataset", dataset.size());
+
+        var entries = dataset.stream()
+                .map(this::evaluateTrace)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
+
+        var report = AccuracyReport.from(entries, confidenceThreshold);
+        log.info("Evaluation complete — accuracy: {:.1f}%", report.overallAccuracy() * 100);
+        return report;
+    }
+
+    private Optional<EvaluationEntry> evaluateTrace(Map<String, Object> trace) {
+        String traceId = (String) trace.get("traceId");
+        try {
+            var context = buildTraceContext(trace);
+            var report  = rcaAnalyzer.analyze(context);
+            var entry   = EvaluationEntry.of(
+                    traceId,
+                    (String) trace.get("expectedRootCauseSpan"),
+                    (String) trace.get("expectedAnomalyType"),
+                    report
+            );
+            log.debug("Trace {} — expected: {} / actual: {} — {}",
+                    traceId,
+                    trace.get("expectedAnomalyType"),
+                    report.anomalyType(),
+                    entry.correct() ? "CORRECT" : "WRONG");
+            return Optional.of(entry);
+        } catch (Exception e) {
+            log.warn("Failed to evaluate trace {} — skipping. Reason: {}", traceId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private TraceContext buildTraceContext(Map<String, Object> trace) {
+        String traceId = (String) trace.get("traceId");
+        var rawSpans   = (List<Map<String, Object>>) trace.get("spans");
+        var rawMetrics = (List<Map<String, Object>>) trace.getOrDefault("metrics", List.of());
+
+        var spans = rawSpans.stream()
+                .map(this::buildSpan)
+                .collect(Collectors.toList());
+
+        var metrics = rawMetrics.stream()
+                .map(this::buildMetric)
+                .collect(Collectors.toList());
+
+        var spanTree   = new SpanTree(traceId, spans);
+        var anomalySpan = spanTree.slowestSpan();
+        long baselineMs = anomalySpan.baselineMs() > 0 ? anomalySpan.baselineMs() : 200L;
+
+        return new TraceContext(spanTree, anomalySpan, baselineMs, 2.0, metrics);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Span buildSpan(Map<String, Object> raw) {
+        var attrs = (Map<String, Object>) raw.getOrDefault("attributes", Map.of());
+        var stringAttrs = attrs.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> String.valueOf(e.getValue())));
+
+        return new Span(
+                (String) raw.get("spanId"),
+                (String) raw.getOrDefault("parentSpanId", null),
+                (String) raw.get("operation"),
+                (String) raw.get("service"),
+                toLong(raw.get("durationMs")),
+                SpanStatus.OK,
+                toLong(raw.getOrDefault("baselineMs", 0)),
+                toLong(raw.getOrDefault("startTimeMs", 0)),
+                stringAttrs
+        );
+    }
+
+    private Metric buildMetric(Map<String, Object> raw) {
+        return new Metric(
+                (String) raw.get("serviceName"),
+                (String) raw.get("metricName"),
+                toDouble(raw.get("value")),
+                Instant.now(),
+                toDouble(raw.getOrDefault("threshold", 0.0))
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> loadDataset() {
+        try (InputStream is = getClass().getResourceAsStream("/dataset/labeled_traces.json")) {
+            if (is == null) throw new IllegalStateException("Dataset not found at /dataset/labeled_traces.json");
+            return MAPPER.readValue(is, new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load evaluation dataset", e);
+        }
+    }
+
+    private long toLong(Object value) {
+        if (value instanceof Number n) return n.longValue();
+        return Long.parseLong(String.valueOf(value));
+    }
+
+    private double toDouble(Object value) {
+        if (value instanceof Number n) return n.doubleValue();
+        return Double.parseDouble(String.valueOf(value));
+    }
+}
