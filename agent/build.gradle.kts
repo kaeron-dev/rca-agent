@@ -18,6 +18,12 @@ dependencies {
     implementation("dev.langchain4j:langchain4j:0.35.0")
     implementation("dev.langchain4j:langchain4j-open-ai:0.35.0")
     implementation("dev.langchain4j:langchain4j-ollama:0.35.0")
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-retry:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-timelimiter:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-bulkhead:2.2.0")
+    implementation("org.springframework.boot:spring-boot-starter-aop")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.mockito:mockito-core:5.14.2")
@@ -27,13 +33,7 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// ./gradlew test        → solo unit tests (sin Docker)
-// ./gradlew integrationTest → requiere Docker corriendo
 tasks.withType<Test> {
-    useJUnitPlatform()
-}
-
-tasks.named<Test>("test") {
     useJUnitPlatform {
         excludeTags("integration")
     }
