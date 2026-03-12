@@ -1,47 +1,66 @@
 #!/bin/bash
+# demo.sh — injects latency, fires a request, captures trace_id, calls the RCA agent
+# Usage: ./scripts/demo.sh
+
 set -e
 
-echo "═══════════════════════════════════════"
-echo "  RCA Agent — Demo"
-echo "═══════════════════════════════════════"
+ORDER_SERVICE="http://localhost:8081"
+RCA_AGENT="http://localhost:8080"
+PAYMENT_SERVICE="http://localhost:8082"
 
-# 1. Verificar que el stack esté levantado
-echo ""
-echo "▶ Verificando servicios..."
-curl -sf http://localhost:8081/actuator/health > /dev/null || { echo "✗ order-service no responde"; exit 1; }
-curl -sf http://localhost:8080/actuator/health > /dev/null || { echo "✗ rca-agent no responde"; exit 1; }
-echo "✓ Servicios OK"
+echo "═══════════════════════════════════════════════════"
+echo "  RCA Agent Demo"
+echo "═══════════════════════════════════════════════════"
 
-# 2. Inyectar latencia artificial en payment-service
+# 1. Inject artificial latency into payment-service
 echo ""
-echo "▶ Inyectando latencia en payment-service..."
-# TODO: implementar en Fase 3
+echo "▶ Step 1: Injecting 3000ms latency into payment-service..."
+curl -s -X POST "$PAYMENT_SERVICE/actuator/demo/latency" \
+  -H "Content-Type: application/json" \
+  -d '{"latencyMs": 3000}' > /dev/null
+echo "  ✓ Latency injected"
 
-# 3. Disparar un request a order-service
+# 2. Fire a request to order-service
 echo ""
-echo "▶ Disparando request anómalo..."
-RESPONSE=$(curl -sf -X POST http://localhost:8081/orders \
+echo "▶ Step 2: Firing request to order-service..."
+RESPONSE=$(curl -s -i -X POST "$ORDER_SERVICE/orders" \
   -H "Content-Type: application/json" \
   -d '{"productId": "p1", "quantity": 2}')
-echo "✓ Response: $RESPONSE"
 
-# 4. Capturar el trace_id del header
+# 3. Extract trace_id from response header
+TRACE_ID=$(echo "$RESPONSE" | grep -i "x-trace-id" | awk '{print $2}' | tr -d '\r')
+
+if [ -z "$TRACE_ID" ]; then
+  echo "  ✗ Could not extract trace_id from response headers"
+  echo "  Hint: make sure all services are healthy: docker compose ps"
+  exit 1
+fi
+
+echo "  ✓ trace_id captured: $TRACE_ID"
+
+# 4. Wait for trace to be ingested by Tempo
 echo ""
-echo "▶ Capturando trace_id..."
-TRACE_ID=$(curl -si -X POST http://localhost:8081/orders \
+echo "▶ Step 3: Waiting 3s for Tempo to ingest the trace..."
+sleep 3
+
+# 5. Call the RCA agent
+echo ""
+echo "▶ Step 4: Calling RCA agent..."
+echo ""
+RCA_REPORT=$(curl -s -X POST "$RCA_AGENT/api/analyze/$TRACE_ID" \
+  -H "Content-Type: application/json")
+
+echo "$RCA_REPORT" | python3 -m json.tool 2>/dev/null || echo "$RCA_REPORT"
+
+# 6. Reset latency
+echo ""
+echo "▶ Step 5: Resetting latency..."
+curl -s -X POST "$PAYMENT_SERVICE/actuator/demo/latency" \
   -H "Content-Type: application/json" \
-  -d '{"productId": "p1", "quantity": 2}' \
-  | grep -i "x-trace-id" | awk '{print $2}' | tr -d '\r')
-echo "✓ trace_id: $TRACE_ID"
+  -d '{"latencyMs": 0}' > /dev/null
+echo "  ✓ Latency reset to 0ms"
 
-# 5. Llamar al agente RCA
 echo ""
-echo "▶ Analizando traza con RCA Agent..."
-RCA_REPORT=$(curl -sf http://localhost:8080/api/analyze/$TRACE_ID)
-
-# 6. Imprimir el RCA report
-echo ""
-echo "═══════════════════════════════════════"
-echo "  RCA Report"
-echo "═══════════════════════════════════════"
-echo $RCA_REPORT | python3 -m json.tool
+echo "═══════════════════════════════════════════════════"
+echo "  Demo complete"
+echo "═══════════════════════════════════════════════════"
