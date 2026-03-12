@@ -1,0 +1,376 @@
+[
+  {
+    "traceId": "trace-db-001",
+    "description": "db.query in payment-service — full table scan, no WHERE clause",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.75,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null,  "service": "order-service",   "operation": "POST /orders",      "durationMs": 4900, "baselineMs": 120, "startTimeMs": 0,    "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1",  "service": "payment-service",  "operation": "processPayment",    "durationMs": 4800, "baselineMs": 80,  "startTimeMs": 50,   "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2",  "service": "payment-service",  "operation": "db.query",          "durationMs": 4750, "baselineMs": 45,  "startTimeMs": 60,   "attributes": {"db.statement": "SELECT * FROM payments", "db.rows_returned": "15000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-002",
+    "description": "db.query in payment-service — missing index on user_id",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.75,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null,  "service": "order-service",   "operation": "POST /orders",      "durationMs": 3200, "baselineMs": 120, "startTimeMs": 0,    "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1",  "service": "payment-service",  "operation": "processPayment",    "durationMs": 3100, "baselineMs": 80,  "startTimeMs": 30,   "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2",  "service": "payment-service",  "operation": "db.query",          "durationMs": 3050, "baselineMs": 45,  "startTimeMs": 40,   "attributes": {"db.statement": "SELECT * FROM payments WHERE user_id = ?", "db.rows_returned": "8000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-003",
+    "description": "db.query in inventory-service — unbounded result set",
+    "expectedRootCauseSpan": "inventory-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.75,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null,  "service": "order-service",    "operation": "POST /orders",      "durationMs": 2800, "baselineMs": 120, "startTimeMs": 0,   "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1",  "service": "inventory-service", "operation": "reserveInventory",  "durationMs": 2700, "baselineMs": 60,  "startTimeMs": 20,  "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2",  "service": "inventory-service", "operation": "db.query",          "durationMs": 2650, "baselineMs": 30,  "startTimeMs": 30,  "attributes": {"db.statement": "SELECT * FROM inventory", "db.rows_returned": "20000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-004",
+    "description": "db.query in payment-service — N+1 query pattern",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 5100, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 5000, "baselineMs": 80,  "startTimeMs": 50, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 4950, "baselineMs": 45,  "startTimeMs": 60, "attributes": {"db.statement": "SELECT * FROM orders WHERE id = ?", "db.rows_returned": "1"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-005",
+    "description": "db.query in payment-service — lock contention, high rows returned",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 6200, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 6100, "baselineMs": 80,  "startTimeMs": 40, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 6050, "baselineMs": 45,  "startTimeMs": 50, "attributes": {"db.statement": "SELECT * FROM payments FOR UPDATE", "db.rows_returned": "12000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-006",
+    "description": "db.query in payment-service — missing composite index",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 3800, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 3700, "baselineMs": 80,  "startTimeMs": 30, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 3650, "baselineMs": 45,  "startTimeMs": 40, "attributes": {"db.statement": "SELECT * FROM payments WHERE user_id = ? AND created_at > ?", "db.rows_returned": "9500"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-007",
+    "description": "db.query in payment-service — Cartesian join",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 7100, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 7000, "baselineMs": 80,  "startTimeMs": 40, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 6950, "baselineMs": 45,  "startTimeMs": 50, "attributes": {"db.statement": "SELECT * FROM payments, orders", "db.rows_returned": "50000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-008",
+    "description": "db.query in payment-service — LIKE with leading wildcard",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 4200, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 4100, "baselineMs": 80,  "startTimeMs": 30, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 4050, "baselineMs": 45,  "startTimeMs": 40, "attributes": {"db.statement": "SELECT * FROM payments WHERE description LIKE '%refund%'", "db.rows_returned": "7500"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-downstream-001",
+    "description": "inventory-service slow — high latency propagated to order-service",
+    "expectedRootCauseSpan": "inventory-service: reserveInventory",
+    "expectedAnomalyType": "HIGH_LATENCY_DOWNSTREAM",
+    "expectedConfidenceMin": 0.75,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 3500, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 200,  "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 3300, "baselineMs": 60,  "startTimeMs": 10, "attributes": {"http.status_code": "200"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-downstream-002",
+    "description": "payment-service slow HTTP call to inventory — timeout approaching",
+    "expectedRootCauseSpan": "inventory-service: reserveInventory",
+    "expectedAnomalyType": "HIGH_LATENCY_DOWNSTREAM",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 4800, "baselineMs": 120, "startTimeMs": 0,   "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 4700, "baselineMs": 80,  "startTimeMs": 10,  "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 4650, "baselineMs": 60,  "startTimeMs": 20,  "attributes": {"http.status_code": "200"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-downstream-003",
+    "description": "notification-service slow — Kafka consumer lag",
+    "expectedRootCauseSpan": "notification-service: processOrderConfirmed",
+    "expectedAnomalyType": "HIGH_LATENCY_DOWNSTREAM",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",       "operation": "POST /orders",          "durationMs": 2900, "baselineMs": 120, "startTimeMs": 0,   "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "notification-service", "operation": "processOrderConfirmed", "durationMs": 2800, "baselineMs": 50,  "startTimeMs": 10,  "attributes": {"http.status_code": "200"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-downstream-004",
+    "description": "inventory-service cold start — first request after deployment",
+    "expectedRootCauseSpan": "inventory-service: reserveInventory",
+    "expectedAnomalyType": "HIGH_LATENCY_DOWNSTREAM",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 5200, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 300,  "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 5100, "baselineMs": 60,  "startTimeMs": 10, "attributes": {"http.status_code": "200"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-resource-001",
+    "description": "CPU saturation in payment-service — all spans slow",
+    "expectedRootCauseSpan": "payment-service: processPayment",
+    "expectedAnomalyType": "RESOURCE_EXHAUSTION",
+    "expectedConfidenceMin": 0.75,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 4500, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 4400, "baselineMs": 80,  "startTimeMs": 30, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 4350, "baselineMs": 45,  "startTimeMs": 40, "attributes": {}}
+    ],
+    "metrics": [
+      {"serviceName": "payment-service", "metricName": "cpu_usage_pct",    "value": 95.0, "threshold": 80.0},
+      {"serviceName": "payment-service", "metricName": "heap_used_pct",    "value": 60.0, "threshold": 85.0}
+    ]
+  },
+  {
+    "traceId": "trace-resource-002",
+    "description": "Heap exhaustion in inventory-service — GC pauses causing latency",
+    "expectedRootCauseSpan": "inventory-service: reserveInventory",
+    "expectedAnomalyType": "RESOURCE_EXHAUSTION",
+    "expectedConfidenceMin": 0.75,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 3800, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 3700, "baselineMs": 60,  "startTimeMs": 20, "attributes": {}}
+    ],
+    "metrics": [
+      {"serviceName": "inventory-service", "metricName": "heap_used_pct",       "value": 92.0, "threshold": 85.0},
+      {"serviceName": "inventory-service", "metricName": "gc_pause_ms",         "value": 850.0, "threshold": 200.0}
+    ]
+  },
+  {
+    "traceId": "trace-resource-003",
+    "description": "Thread pool exhaustion in payment-service — bulkhead full",
+    "expectedRootCauseSpan": "payment-service: processPayment",
+    "expectedAnomalyType": "RESOURCE_EXHAUSTION",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 5500, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 5400, "baselineMs": 80,  "startTimeMs": 20, "attributes": {}}
+    ],
+    "metrics": [
+      {"serviceName": "payment-service", "metricName": "thread_pool_active",  "value": 200.0, "threshold": 150.0},
+      {"serviceName": "payment-service", "metricName": "cpu_usage_pct",       "value": 88.0,  "threshold": 80.0}
+    ]
+  },
+  {
+    "traceId": "trace-resource-004",
+    "description": "DB connection pool exhausted in payment-service",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "RESOURCE_EXHAUSTION",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 6800, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 6700, "baselineMs": 80,  "startTimeMs": 20, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 6650, "baselineMs": 45,  "startTimeMs": 30, "attributes": {}}
+    ],
+    "metrics": [
+      {"serviceName": "payment-service", "metricName": "db_pool_active",   "value": 50.0, "threshold": 40.0},
+      {"serviceName": "payment-service", "metricName": "db_pool_pending",  "value": 25.0, "threshold": 10.0}
+    ]
+  },
+  {
+    "traceId": "trace-cascade-001",
+    "description": "CASCADE — payment slow + inventory errors — common ancestor order-service healthy",
+    "expectedRootCauseSpan": "order-service: POST /orders",
+    "expectedAnomalyType": "CASCADE_FAILURE",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 130,  "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 4800, "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 3200, "baselineMs": 60,  "startTimeMs": 10, "attributes": {}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-cascade-002",
+    "description": "CASCADE — payment and inventory both slow in parallel — ancestor within baseline",
+    "expectedRootCauseSpan": "order-service: POST /orders",
+    "expectedAnomalyType": "CASCADE_FAILURE",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 125,  "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 3500, "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 2800, "baselineMs": 60,  "startTimeMs": 10, "attributes": {}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-cascade-003",
+    "description": "CASCADE — three parallel branches all anomalous",
+    "expectedRootCauseSpan": "order-service: POST /orders",
+    "expectedAnomalyType": "CASCADE_FAILURE",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",       "operation": "POST /orders",          "durationMs": 115,  "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",     "operation": "processPayment",        "durationMs": 4200, "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service",   "operation": "reserveInventory",      "durationMs": 3100, "baselineMs": 60,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s4", "parentSpanId": "s1", "service": "notification-service", "operation": "processOrderConfirmed", "durationMs": 2900, "baselineMs": 50,  "startTimeMs": 10, "attributes": {}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-cascade-004",
+    "description": "CASCADE — resource exhaustion triggers cascade across payment and inventory",
+    "expectedRootCauseSpan": "payment-service: processPayment",
+    "expectedAnomalyType": "RESOURCE_EXHAUSTION",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 118,  "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 5100, "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 3400, "baselineMs": 60,  "startTimeMs": 10, "attributes": {}}
+    ],
+    "metrics": [
+      {"serviceName": "payment-service", "metricName": "cpu_usage_pct", "value": 96.0, "threshold": 80.0}
+    ]
+  },
+  {
+    "traceId": "trace-unknown-001",
+    "description": "No baseline data — cannot classify",
+    "expectedRootCauseSpan": "none",
+    "expectedAnomalyType": "UNKNOWN",
+    "expectedConfidenceMin": 0.0,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 500, "baselineMs": 0, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 400, "baselineMs": 0, "startTimeMs": 20, "attributes": {}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-unknown-002",
+    "description": "All spans within baseline — no anomaly",
+    "expectedRootCauseSpan": "none",
+    "expectedAnomalyType": "UNKNOWN",
+    "expectedConfidenceMin": 0.0,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 100, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 70,  "baselineMs": 80,  "startTimeMs": 10, "attributes": {}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-009",
+    "description": "db.query in payment-service — aggregation without index",
+    "expectedRootCauseSpan": "payment-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",  "operation": "POST /orders",   "durationMs": 3600, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service", "operation": "processPayment", "durationMs": 3500, "baselineMs": 80,  "startTimeMs": 20, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "payment-service", "operation": "db.query",       "durationMs": 3450, "baselineMs": 45,  "startTimeMs": 30, "attributes": {"db.statement": "SELECT COUNT(*), SUM(amount) FROM payments GROUP BY user_id", "db.rows_returned": "11000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-db-010",
+    "description": "db.query in inventory-service — ORDER BY without index",
+    "expectedRootCauseSpan": "inventory-service: db.query",
+    "expectedAnomalyType": "DATABASE_SLOW_QUERY",
+    "expectedConfidenceMin": 0.70,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 4100, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 4000, "baselineMs": 60,  "startTimeMs": 20, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s2", "service": "inventory-service", "operation": "db.query",         "durationMs": 3950, "baselineMs": 30,  "startTimeMs": 30, "attributes": {"db.statement": "SELECT * FROM inventory ORDER BY created_at DESC", "db.rows_returned": "18000"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-downstream-005",
+    "description": "payment-service slow HTTP to inventory — connection pool wait",
+    "expectedRootCauseSpan": "inventory-service: reserveInventory",
+    "expectedAnomalyType": "HIGH_LATENCY_DOWNSTREAM",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 4400, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 250,  "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 4300, "baselineMs": 60,  "startTimeMs": 10, "attributes": {"http.status_code": "200"}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-resource-005",
+    "description": "Network saturation — all outbound calls slow",
+    "expectedRootCauseSpan": "order-service: POST /orders",
+    "expectedAnomalyType": "RESOURCE_EXHAUSTION",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 5800, "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 2800, "baselineMs": 80,  "startTimeMs": 20, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 2900, "baselineMs": 60,  "startTimeMs": 20, "attributes": {}}
+    ],
+    "metrics": [
+      {"serviceName": "order-service", "metricName": "network_tx_bytes_per_sec", "value": 950000000.0, "threshold": 800000000.0}
+    ]
+  },
+  {
+    "traceId": "trace-cascade-005",
+    "description": "CASCADE — payment and inventory slow after config push",
+    "expectedRootCauseSpan": "order-service: POST /orders",
+    "expectedAnomalyType": "CASCADE_FAILURE",
+    "expectedConfidenceMin": 0.65,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service",    "operation": "POST /orders",     "durationMs": 122,  "baselineMs": 120, "startTimeMs": 0,  "attributes": {}},
+      {"spanId": "s2", "parentSpanId": "s1", "service": "payment-service",  "operation": "processPayment",   "durationMs": 4600, "baselineMs": 80,  "startTimeMs": 10, "attributes": {}},
+      {"spanId": "s3", "parentSpanId": "s1", "service": "inventory-service", "operation": "reserveInventory", "durationMs": 3800, "baselineMs": 60,  "startTimeMs": 10, "attributes": {}}
+    ],
+    "metrics": []
+  },
+  {
+    "traceId": "trace-unknown-003",
+    "description": "Single span, no parent, no baseline — insufficient data",
+    "expectedRootCauseSpan": "none",
+    "expectedAnomalyType": "UNKNOWN",
+    "expectedConfidenceMin": 0.0,
+    "spans": [
+      {"spanId": "s1", "parentSpanId": null, "service": "order-service", "operation": "POST /orders", "durationMs": 300, "baselineMs": 0, "startTimeMs": 0, "attributes": {}}
+    ],
+    "metrics": []
+  }
+]
