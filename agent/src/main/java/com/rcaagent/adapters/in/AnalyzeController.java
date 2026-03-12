@@ -40,7 +40,9 @@ public class AnalyzeController {
         try {
             RcaReport report = analyzeTraceUseCase.analyze(traceId);
             log.info("RCA analysis completed for traceId: {} — confidence: {}", traceId, report.confidence());
-            return ResponseEntity.ok(report);
+            return ResponseEntity.ok()
+                    .header("X-Trace-Id", traceId)   // ← agregado
+                    .body(report);
         } catch (TraceNotFoundException e) {
             log.warn("Trace not found: {}", traceId);
             return ResponseEntity.notFound().build();
