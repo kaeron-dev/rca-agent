@@ -229,3 +229,36 @@ services:
         condition: service_healthy
     networks:
       - rca-net
+
+  rca-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: rca-agent
+    ports:
+      - "${RCA_AGENT_PORT:-8080}:8080"
+    environment:
+      - TEMPO_URL=http://tempo:3200
+      - PROMETHEUS_URL=http://prometheus:9090
+      - OLLAMA_URL=http://ollama:11434
+      - LLM_MODE=${LLM_MODE:-ollama}
+      - LLM_LOCAL_MODEL=${LLM_LOCAL_MODEL:-llama3.2}
+      - LLM_STANDARD_MODEL=${LLM_STANDARD_MODEL:-gemini-1.5-flash}
+      - LLM_PREMIUM_MODEL=${LLM_PREMIUM_MODEL:-gemini-1.5-pro}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - RCA_AGENT_PORT=8080
+      - RCA_CONFIDENCE_THRESHOLD=${RCA_CONFIDENCE_THRESHOLD:-0.75}
+    depends_on:
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    networks:
+      - rca-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

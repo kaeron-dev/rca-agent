@@ -1,0 +1,12 @@
+FROM eclipse-temurin:21-jdk-alpine AS builder
+WORKDIR /app
+COPY gradlew settings.gradle.kts build.gradle.kts ./
+COPY gradle ./gradle
+COPY services/ ./services/
+COPY agent/ ./agent/
+RUN ./gradlew :agent:bootJar --no-daemon
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=builder /app/agent/build/libs/*.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]
