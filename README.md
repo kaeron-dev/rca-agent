@@ -380,3 +380,85 @@ docker compose up -d tempo prometheus grafana otel-collector kafka
 ## License
 
 MIT — see [LICENSE](LICENSE)
+---
+
+## CAP Theorem — decisions per component
+
+In a distributed system you can only guarantee two of three: Consistency, Availability, Partition tolerance. Every external dependency in this project makes a different trade-off.
+
+| Component | CAP choice | Behavior under partition |
+|---|---|---|
+| Grafana Tempo | **CP** | Prefers unavailability over returning incomplete traces. If partitioned, Tempo does not respond rather than returning a partial span tree. The agent detects this via Circuit Breaker and returns a degraded response immediately. |
+| Prometheus | **AP** | Prefers availability over consistency. Under partition, Prometheus returns the metrics it has — potentially stale. The agent uses them with a warning in the RCA report rather than blocking analysis. |
+| H2 (baseline store) | **CP** | In-memory, single node. No partition scenario in Phase 1 — replaced by PostgreSQL in Phase 5 for persistence across restarts. |
+| Kafka | **AP** | Producers continue publishing to available brokers. Consumers resume from last committed offset on recovery. No messages are lost — notification-service replays on restart. |
+| RCA Agent | **AP** | Designed to always return something useful. A partial analysis with `confidence: 0.0` is more useful than an HTTP 500. The fallback chain ensures the system never throws to the caller. |
+
+### Why Tempo is CP and Prometheus is AP
+
+Tempo stores traces as immutable append-only data. A partial trace — missing spans from one service — produces a misleading RCA. It is safer to return nothing and let the Circuit Breaker handle recovery.
+
+Prometheus scrapes metrics on a pull model with configurable intervals. A metric value from 15 seconds ago is still useful for anomaly correlation. Returning stale data with a warning is better than blocking the analysis pipeline.
+
+---
+
+## Resilience patterns — implementation decisions
+
+### Circuit Breaker on Tempo
+```
+Tempo down → 3 consecutive failures → circuit OPENS
+             → subsequent calls fail immediately (no thread blocking)
+             → after 30s → circuit transitions to HALF-OPEN
+             → 3 probe calls → if successful → circuit CLOSES
+```
+
+**Why 30s wait duration:** Tempo restart in Docker takes ~15-20s. A 30s window ensures the service is fully healthy before probing. Shorter windows cause thundering herd on recovery.
+
+**Why sliding window of 10:** Avoids opening the circuit on isolated transient failures. 10 calls with 50% failure rate means 5 consecutive failures — enough signal to distinguish a real outage from network noise.
+
+### Retry with exponential backoff on LLM calls
+```
+LLM call fails → wait 1s → retry
+                → wait 2s → retry
+                → wait 4s → retry
+                → all attempts exhausted → fallback method called
+```
+
+**Why exponential and not fixed:** A struggling LLM under load needs time to recover. Fixed 1s retries add load to an already saturated model. Doubling the wait gives the LLM breathing room between attempts.
+
+**Why max 3 attempts:** At 1s + 2s + 4s = 7s total wait plus the original call, the user is already waiting ~8-10s. Beyond 3 retries the degraded fallback response is more useful than continued waiting.
+
+### Bulkhead on LLM calls
+```
+Max 5 concurrent LLM calls
+Requests beyond 5 → wait up to 2s for a slot
+                  → if no slot available → fallback method called
+```
+
+**Why 5 concurrent:** LLMs — especially local Ollama — are CPU/GPU bound. More than 5 concurrent requests causes context switching overhead that makes all requests slower. Better to queue or degrade than to let all requests time out together.
+
+**Why 2s wait:** A request that waits 2s for a slot and then gets processed is better than a request that times out after 60s. The 2s window handles short bursts without immediately degrading.
+
+### Fallback chain
+```
+Primary LLM (Ollama/Gemini) fails
+  → Retry 3x with backoff
+    → All retries exhausted OR bulkhead full
+      → fallback() called
+        → Returns RcaReport with:
+            confidence: 0.0          ← signals degraded to caller
+            rootCause: span data      ← preserves what we know
+            recommendation: manual    ← actionable even without LLM
+```
+
+**Why confidence 0.0 and not an exception:** The controller returns 200 with a degraded report rather than 503. The caller — whether a human or an automated system — can decide how to handle low confidence. An exception gives the caller no information. A degraded report gives them the span data to start manual investigation.
+
+### Timeout configuration
+
+| Dependency | Timeout | Rationale |
+|---|---|---|
+| Tempo | 5s | Trace fetch is a simple HTTP GET. If Tempo takes more than 5s it is either overloaded or down — both warrant Circuit Breaker. |
+| LLM (fast model) | 30s | Gemini Flash and small Ollama models respond in 3-8s under normal load. 30s accommodates model cold starts. |
+| LLM (premium model) | 60s | Gemini Pro and large models can take 15-30s for complex traces. 60s is the practical upper bound before user experience degrades. |
+
+---
