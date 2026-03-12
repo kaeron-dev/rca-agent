@@ -2,6 +2,7 @@ package com.rcaagent.application;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rcaagent.adapters.out.evaluation.EvaluationPersistenceAdapter;
 import com.rcaagent.domain.*;
 import com.rcaagent.ports.out.RcaAnalyzer;
 import org.slf4j.Logger;
@@ -16,11 +17,12 @@ import java.util.stream.Collectors;
 
 /**
  * Runs the labeled dataset through the RCA agent and computes accuracy metrics.
+ * Persists results to H2 for trend analysis across prompt iterations.
  *
  * What to study here:
  *   - SRP: evaluation is a separate service — TraceAnalysisService is not modified
  *   - The dataset is loaded from classpath — no external dependencies needed
- *   - AccuracyReport.toMarkdown() produces a report consumable by the benchmark script
+ *   - Results are persisted to H2 — enables accuracy trend tracking across prompt changes
  */
 @Service
 public class EvaluationService {
@@ -29,20 +31,19 @@ public class EvaluationService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final RcaAnalyzer rcaAnalyzer;
+    private final EvaluationPersistenceAdapter persistenceAdapter;
     private final double confidenceThreshold;
 
     public EvaluationService(
             RcaAnalyzer rcaAnalyzer,
+            EvaluationPersistenceAdapter persistenceAdapter,
             @Value("${rca.confidence.threshold:0.75}") double confidenceThreshold
     ) {
-        this.rcaAnalyzer         = rcaAnalyzer;
-        this.confidenceThreshold = confidenceThreshold;
+        this.rcaAnalyzer          = rcaAnalyzer;
+        this.persistenceAdapter   = persistenceAdapter;
+        this.confidenceThreshold  = confidenceThreshold;
     }
 
-    /**
-     * Loads the labeled dataset from classpath and runs each trace through the agent.
-     * Returns an AccuracyReport with per-type accuracy and false negative rate.
-     */
     public AccuracyReport evaluate() {
         var dataset = loadDataset();
         log.info("Starting evaluation — {} traces in dataset", dataset.size());
@@ -53,8 +54,11 @@ public class EvaluationService {
                 .map(Optional::get)
                 .collect(Collectors.toList());
 
+        persistenceAdapter.saveAll(entries);
+
         var report = AccuracyReport.from(entries, confidenceThreshold);
-        log.info("Evaluation complete — accuracy: {:.1f}%", report.overallAccuracy() * 100);
+        log.info("Evaluation complete — accuracy: {}%",
+                String.format("%.1f", report.overallAccuracy() * 100));
         return report;
     }
 
@@ -95,7 +99,7 @@ public class EvaluationService {
                 .map(this::buildMetric)
                 .collect(Collectors.toList());
 
-        var spanTree   = new SpanTree(traceId, spans);
+        var spanTree    = new SpanTree(traceId, spans);
         var anomalySpan = spanTree.slowestSpan();
         long baselineMs = anomalySpan.baselineMs() > 0 ? anomalySpan.baselineMs() : 200L;
 
