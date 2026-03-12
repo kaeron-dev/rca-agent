@@ -1,66 +1,99 @@
 #!/bin/bash
-# demo.sh — injects latency, fires a request, captures trace_id, calls the RCA agent
-# Usage: ./scripts/demo.sh
+# demo.sh — anomaly injection, trace capture, RCA analysis
+#
+# Scenarios:
+#   default   — slow payment-service (DATABASE_SLOW_QUERY simulation)
+#   errors    — payment errors (HIGH_LATENCY_DOWNSTREAM simulation)
+#   cascade   — payment slow + inventory errors (CASCADE_FAILURE simulation)
+#
+# Usage:
+#   ./scripts/demo.sh              → default scenario
+#   ./scripts/demo.sh cascade      → cascade failure scenario
+#   ./scripts/demo.sh errors       → error injection scenario
 
 set -e
 
+SCENARIO=${1:-default}
 ORDER_SERVICE="http://localhost:8081"
 RCA_AGENT="http://localhost:8080"
 PAYMENT_SERVICE="http://localhost:8082"
+INVENTORY_SERVICE="http://localhost:8083"
 
 echo "═══════════════════════════════════════════════════"
-echo "  RCA Agent Demo"
+echo "  RCA Agent Demo — scenario: $SCENARIO"
 echo "═══════════════════════════════════════════════════"
 
-# 1. Inject artificial latency into payment-service
+# ── Step 1: Inject anomaly ────────────────────────────
 echo ""
-echo "▶ Step 1: Injecting 3000ms latency into payment-service..."
-curl -s -X POST "$PAYMENT_SERVICE/actuator/demo/latency" \
-  -H "Content-Type: application/json" \
-  -d '{"latencyMs": 3000}' > /dev/null
-echo "  ✓ Latency injected"
+echo "▶ Step 1: Injecting anomaly..."
 
-# 2. Fire a request to order-service
+case $SCENARIO in
+  cascade)
+    curl -s -X POST "$PAYMENT_SERVICE/demo/latency?ms=3000" > /dev/null
+    curl -s -X POST "$INVENTORY_SERVICE/demo/errors?rate=80" > /dev/null
+    echo "  ✓ payment-service: 3000ms latency injected"
+    echo "  ✓ inventory-service: 80% error rate injected"
+    ;;
+  errors)
+    curl -s -X POST "$PAYMENT_SERVICE/demo/errors?rate=100" > /dev/null
+    echo "  ✓ payment-service: 100% error rate injected"
+    ;;
+  *)
+    curl -s -X POST "$PAYMENT_SERVICE/demo/latency?ms=3000" > /dev/null
+    echo "  ✓ payment-service: 3000ms latency injected"
+    ;;
+esac
+
+# ── Step 2: Fire request ──────────────────────────────
 echo ""
 echo "▶ Step 2: Firing request to order-service..."
-RESPONSE=$(curl -s -i -X POST "$ORDER_SERVICE/orders" \
+RESPONSE=$(curl -s -D - -X POST "$ORDER_SERVICE/orders" \
   -H "Content-Type: application/json" \
   -d '{"productId": "p1", "quantity": 2}')
 
-# 3. Extract trace_id from response header
-TRACE_ID=$(echo "$RESPONSE" | grep -i "x-trace-id" | awk '{print $2}' | tr -d '\r')
+echo "  Response headers and body:"
+echo "$RESPONSE" | head -20
+
+# ── Step 3: Extract trace_id ──────────────────────────
+TRACE_ID=$(echo "$RESPONSE" | grep -i "x-trace-id" | awk '{print $2}' | tr -d '\r' | head -1)
 
 if [ -z "$TRACE_ID" ]; then
-  echo "  ✗ Could not extract trace_id from response headers"
-  echo "  Hint: make sure all services are healthy: docker compose ps"
+  echo ""
+  echo "  ✗ No X-Trace-Id header — extracting from Tempo..."
+  sleep 3
+  TRACE_ID=$(curl -s "http://localhost:3200/api/search?tags=service.name%3Dorder-service&limit=1" \
+    | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['traces'][0]['traceID'])" 2>/dev/null)
+fi
+
+if [ -z "$TRACE_ID" ]; then
+  echo "  ✗ Could not extract trace_id. Check that services are healthy."
+  curl -s -X POST "$PAYMENT_SERVICE/demo/reset" > /dev/null
+  curl -s -X POST "$INVENTORY_SERVICE/demo/reset" > /dev/null
   exit 1
 fi
 
-echo "  ✓ trace_id captured: $TRACE_ID"
+echo "  ✓ trace_id: $TRACE_ID"
 
-# 4. Wait for trace to be ingested by Tempo
+# ── Step 4: Wait for Tempo ingestion ─────────────────
 echo ""
 echo "▶ Step 3: Waiting 3s for Tempo to ingest the trace..."
 sleep 3
 
-# 5. Call the RCA agent
+# ── Step 5: Call RCA agent ────────────────────────────
 echo ""
 echo "▶ Step 4: Calling RCA agent..."
 echo ""
-RCA_REPORT=$(curl -s -X POST "$RCA_AGENT/api/analyze/$TRACE_ID" \
-  -H "Content-Type: application/json")
-
+RCA_REPORT=$(curl -s -X POST "$RCA_AGENT/api/analyze/$TRACE_ID")
 echo "$RCA_REPORT" | python3 -m json.tool 2>/dev/null || echo "$RCA_REPORT"
 
-# 6. Reset latency
+# ── Step 6: Reset all injections ─────────────────────
 echo ""
-echo "▶ Step 5: Resetting latency..."
-curl -s -X POST "$PAYMENT_SERVICE/actuator/demo/latency" \
-  -H "Content-Type: application/json" \
-  -d '{"latencyMs": 0}' > /dev/null
-echo "  ✓ Latency reset to 0ms"
+echo "▶ Step 5: Resetting all anomaly injections..."
+curl -s -X POST "$PAYMENT_SERVICE/demo/reset" > /dev/null
+curl -s -X POST "$INVENTORY_SERVICE/demo/reset" > /dev/null
+echo "  ✓ All injections reset"
 
 echo ""
 echo "═══════════════════════════════════════════════════"
-echo "  Demo complete"
+echo "  Demo complete — scenario: $SCENARIO"
 echo "═══════════════════════════════════════════════════"
