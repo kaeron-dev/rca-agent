@@ -1,0 +1,46 @@
+name: Multi-Module Build
+
+# Verifies that all modules in the monorepo compile cleanly.
+# Runs on every push and PR to main.
+# If any Kotlin service or the Java agent fails to compile → PR is blocked.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build all modules
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      # Compile agent — Java 21
+      - name: Build agent
+        run: ./gradlew :agent:compileJava :agent:compileTestJava --no-daemon
+
+      # Compile all Kotlin services
+      - name: Build order-service
+        run: ./gradlew :services:order-service:compileKotlin :services:order-service:compileTestKotlin --no-daemon
+
+      - name: Build payment-service
+        run: ./gradlew :services:payment-service:compileKotlin :services:payment-service:compileTestKotlin --no-daemon
+
+      - name: Build inventory-service
+        run: ./gradlew :services:inventory-service:compileKotlin :services:inventory-service:compileTestKotlin --no-daemon
+
+      - name: Build notification-service
+        run: ./gradlew :services:notification-service:compileKotlin :services:notification-service:compileTestKotlin --no-daemon
