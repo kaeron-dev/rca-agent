@@ -1,0 +1,39 @@
+name: Agent Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run agent unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # setup-java con cache: gradle maneja el cache internamente
+      # sin necesidad de actions/cache separado
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :agent:test --no-daemon
+
+      # if: always() — publica el reporte aunque los tests fallen
+      - name: Publish test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: agent/build/reports/tests/test/
