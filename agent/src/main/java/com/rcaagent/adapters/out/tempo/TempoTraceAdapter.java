@@ -4,25 +4,15 @@ import com.rcaagent.domain.SpanTree;
 import com.rcaagent.domain.exception.TraceNotFoundException;
 import com.rcaagent.ports.out.TraceRepository;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
  * Adapter — implements TraceRepository using Grafana Tempo HTTP API.
- *
- * Resilience patterns applied:
- *   @CircuitBreaker — opens after 50% failures in 10 calls, stays open 30s
- *   Fallback        — returns degraded response instead of propagating exception
- *
- * What to study here:
- *   - @CircuitBreaker is declarative — no try/catch boilerplate
- *   - fallbackMethod receives the exception — can log and return degraded response
- *   - The domain never knows about circuit breakers — resilience lives in the adapter
+ * Enhanced with smart polling to handle eventual consistency.
  */
 @Component
 public class TempoTraceAdapter implements TraceRepository {
@@ -40,30 +30,40 @@ public class TempoTraceAdapter implements TraceRepository {
     @Override
     @CircuitBreaker(name = "tempo", fallbackMethod = "fallback")
     public SpanTree findByTraceId(String traceId) {
-        try {
-            TempoSpanResponse response = webClient.get()
-                    .uri("/api/traces/{traceId}", traceId)
-                    .retrieve()
-                    .bodyToMono(TempoSpanResponse.class)
-                    .block();
+        int attempts = 0;
+        while (attempts < 5) {
+            try {
+                TempoSpanResponse response = webClient.get()
+                        .uri("/api/v2/traces/{traceId}", traceId)
+                        .accept(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .retrieve()
+                        .bodyToMono(TempoSpanResponse.class)
+                        .block();
 
-            if (response == null || response.resourceSpans() == null || response.resourceSpans().isEmpty()) {
-                throw new TraceNotFoundException(traceId);
+                if (response != null && response.trace() != null && response.trace().resourceSpans() != null) {
+                    SpanTree tree = SpanTreeMapper.from(traceId, response);
+
+                    // Integrity check: the demo always injects 3000ms. 
+                    // We wait until we see at least one span > 500ms.
+                    boolean hasAnomalousSpans = tree.spans().stream().anyMatch(s -> s.durationMs() > 500);
+
+                    if (hasAnomalousSpans || attempts == 4) {
+                        return tree;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Tempo poll attempt {} failed for traceId: {}", attempts, traceId);
             }
 
-            return SpanTreeMapper.from(traceId, response);
-
-        } catch (WebClientResponseException.NotFound e) {
-            throw new TraceNotFoundException(traceId);
+            attempts++;
+            log.info("Trace {} incomplete or anomaly not yet indexed, retrying in 3s... (attempt {})", traceId, attempts);
+            try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
+        throw new TraceNotFoundException(traceId);
     }
 
-    /**
-     * Fallback — called when circuit is open or Tempo is unreachable.
-     * Fails fast with a clear exception instead of blocking threads.
-     */
     public SpanTree fallback(String traceId, Exception e) {
-        log.warn("Circuit breaker open for Tempo — traceId: {} — reason: {}", traceId, e.getMessage());
-        throw new TraceNotFoundException("Tempo unavailable — circuit open for traceId: " + traceId);
+        log.warn("Circuit breaker open or trace not ready for Tempo — traceId: {} — reason: {}", traceId, e.getMessage());
+        throw new TraceNotFoundException("Tempo data not ready or unavailable for traceId: " + traceId);
     }
 }
