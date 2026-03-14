@@ -3,63 +3,81 @@ package com.rcaagent.adapters.out.llm;
 import com.rcaagent.domain.RcaReport;
 import com.rcaagent.domain.TraceContext;
 import com.rcaagent.ports.out.RcaAnalyzer;
+import dev.langchain4j.model.chat.ChatLanguageModel;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
-import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
- * Adapter — implements RcaAnalyzer using LangChain4j.
- *
- * Resilience patterns applied:
- *   @Retry    — retries up to 3 times with exponential backoff (1s, 2s, 4s)
- *   @Bulkhead — max 5 concurrent LLM calls, others wait 2s or get rejected
- *
- * Fallback chain:
- *   Primary LLM fails → retry 3x → bulkhead full → degraded response
- *   The system always returns something useful.
- *
- * What to study here:
- *   - @Retry prevents hammering a struggling LLM with immediate retries
- *   - @Bulkhead prevents thread exhaustion under high load
- *   - fallbackMethod returns a partial RcaReport — better than an error
+ * Adapter — implements RcaAnalyzer using LangChain4j with automatic hybrid fallback.
  */
 @Component
 public class LangChain4jRcaAdapter implements RcaAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(LangChain4jRcaAdapter.class);
 
-    private final ModelSelectionStrategy strategy;
+    private final ChatLanguageModel mainModel;
+    private final ChatLanguageModel backupModel;
 
-    public LangChain4jRcaAdapter(ModelSelectionStrategy strategy) {
-        this.strategy = strategy;
+    // Memoria para evitar llamar a Gemini si sabemos que no hay cuota (1 minuto)
+    private final AtomicLong lastQuotaErrorTime = new AtomicLong(0);
+    private static final long QUOTA_RECOVERY_TIME_MS = 60_000;
+
+    public LangChain4jRcaAdapter(ChatLanguageModel mainModel, ChatLanguageModel backupModel) {
+        this.mainModel   = mainModel;
+        this.backupModel = backupModel;
     }
 
     @Override
-    @Retry(name = "llm", fallbackMethod = "fallback")
     @Bulkhead(name = "llm", fallbackMethod = "fallback")
-    public RcaReport analyze(TraceContext context) {
-        var model    = strategy.select(context);
-        var prompt   = RcaPromptBuilder.build(context);
+    public synchronized RcaReport analyze(TraceContext context) {
+        var prompt = RcaPromptBuilder.build(context);
 
-        log.info("Analyzing trace {} — anomalyFactor: {:.1f}x — model: {}",
-                context.traceId(), context.anomalyFactor(), model.getClass().getSimpleName());
+        // Si falló por cuota hace poco, saltamos directo a local
+        if (System.currentTimeMillis() - lastQuotaErrorTime.get() < QUOTA_RECOVERY_TIME_MS) {
+            log.info("Skipping Gemini (quota recently exceeded) for trace {}. Using local model...", context.traceId());
+            return useBackup(prompt, context);
+        }
 
-        var response = model.generate(prompt);
+        try {
+            log.info("Analyzing trace {} using standard model...", context.traceId());
+            var response = mainModel.generate(prompt);
+            return RcaReportParser.parse(response, context);
+        } catch (Exception e) {
+            if (isQuotaError(e)) {
+                log.warn("Gemini quota exceeded. Remembering for 60s...");
+                lastQuotaErrorTime.set(System.currentTimeMillis());
+            }
+            log.warn("Main model failed for trace {} (reason: {}). Switching to backup/local model...", 
+                    context.traceId(), e.getMessage());
+            return useBackup(prompt, context);
+        }
+    }
 
-        log.debug("LLM response for trace {}: {}", context.traceId(), response);
+    private RcaReport useBackup(String prompt, TraceContext context) {
+        try {
+             log.info("Calling backup model (Ollama) for trace {}...", context.traceId());
+             var response = backupModel.generate(prompt);
+             return RcaReportParser.parse(response, context);
+        } catch (Exception e) {
+             log.error("Backup model also failed for trace {}: {}", context.traceId(), e.getMessage());
+             return fallback(context, e);
+        }
+    }
 
-        return RcaReportParser.parse(response, context);
+    private boolean isQuotaError(Exception e) {
+        String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+        return msg.contains("429") || msg.contains("quota") || msg.contains("resource_exhausted");
     }
 
     /**
-     * Fallback — called after all retries exhausted or bulkhead full.
-     * Returns degraded response with the span data but no LLM interpretation.
+     * Fallback — llamado solo si AMBOS modelos fallan o el sistema está saturado.
      */
     public RcaReport fallback(TraceContext context, Exception e) {
-        log.warn("LLM unavailable for trace {} — returning degraded response. Reason: {}",
-                context.traceId(), e.getMessage());
+        log.error("All LLM models failed or bulkhead full for trace {}. Reason: {}", context.traceId(), e.getMessage());
 
         return new RcaReport(
                 context.traceId(),

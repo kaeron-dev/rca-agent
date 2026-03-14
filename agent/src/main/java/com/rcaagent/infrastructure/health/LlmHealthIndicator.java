@@ -7,33 +7,25 @@ import org.springframework.stereotype.Component;
 
 /**
  * Health indicator for the LLM model.
- * Sends a minimal probe request to verify the model is reachable.
+ * Reports UP if the model bean was created successfully.
  *
- * What to study here:
- *   - We inject the fastModel bean — same model the adapter uses
- *   - A failed probe means the LLM is down — fallback chain will activate
+ * Note: we do NOT make a real inference call here — that would consume quota
+ * on every health check. Bean existence is sufficient to confirm configuration.
  */
 @Component
 public class LlmHealthIndicator implements HealthIndicator {
 
-    private final ChatLanguageModel fastModel;
+    private final ChatLanguageModel mainModel;
 
-    public LlmHealthIndicator(ChatLanguageModel fastModel) {
-        this.fastModel = fastModel;
+    public LlmHealthIndicator(ChatLanguageModel mainModel) {
+        this.mainModel = mainModel;
     }
 
     @Override
     public Health health() {
-        try {
-            fastModel.generate("ping");
-            return Health.up()
-                    .withDetail("model", fastModel.getClass().getSimpleName())
-                    .build();
-        } catch (Exception e) {
-            return Health.down()
-                    .withDetail("model", fastModel.getClass().getSimpleName())
-                    .withDetail("reason", e.getMessage())
-                    .build();
-        }
+        return Health.up()
+                .withDetail("model", mainModel.getClass().getSimpleName())
+                .withDetail("note", "connectivity verified at first inference only")
+                .build();
     }
 }
