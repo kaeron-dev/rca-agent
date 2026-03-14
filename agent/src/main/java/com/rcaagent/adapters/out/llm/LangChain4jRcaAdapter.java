@@ -51,16 +51,25 @@ public class LangChain4jRcaAdapter implements RcaAnalyzer {
                 log.warn("Gemini quota exceeded. Remembering for 60s...");
                 lastQuotaErrorTime.set(System.currentTimeMillis());
             }
+            
+            // SI EL BACKUP ES EL MISMO MODELO QUE EL MAIN, NO REINTENTAMOS (evita bucles si no hay key de Gemini)
+            if (mainModel.equals(backupModel)) {
+                log.error("Primary model (Local) failed and no alternate model is configured. Trace: {}", context.traceId());
+                return fallback(context, e);
+            }
+
             log.warn("Main model failed for trace {} (reason: {}). Switching to backup/local model...", 
                     context.traceId(), e.getMessage());
             return useBackup(prompt, context);
         }
     }
 
-    private RcaReport useBackup(String prompt, TraceContext context) {
+    private RcaReport useBackup(String unusedPrompt, TraceContext context) {
         try {
-             log.info("Calling backup model (Ollama) for trace {}...", context.traceId());
-             var response = backupModel.generate(prompt);
+             log.info("Calling backup model (Ollama) with LITE prompt for trace {}...", context.traceId());
+             // Generamos un nuevo prompt LITE específicamente para Ollama
+             var litePrompt = RcaPromptBuilder.build(context, true);
+             var response = backupModel.generate(litePrompt);
              return RcaReportParser.parse(response, context);
         } catch (Exception e) {
              log.error("Backup model also failed for trace {}: {}", context.traceId(), e.getMessage());

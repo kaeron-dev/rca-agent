@@ -36,14 +36,24 @@ public class LlmConfig {
 
     @Bean
     public ChatLanguageModel mainModel() {
-        if ("gemini".equalsIgnoreCase(llmMode) && geminiApiKey != null && !geminiApiKey.isBlank()) {
-            log.info("Using Gemini Flash ({}) as main model", geminiModel);
-            return GoogleAiGeminiChatModel.builder()
-                    .apiKey(geminiApiKey)
-                    .modelName(geminiModel)
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+        boolean isGeminiMode = "gemini".equalsIgnoreCase(llmMode);
+        // Una API Key de Google suele tener ~39 caracteres. Validamos presencia y longitud mínima.
+        boolean hasValidKey = geminiApiKey != null && geminiApiKey.trim().length() > 20;
+
+        if (isGeminiMode && hasValidKey) {
+            log.info("Configuring Gemini Flash ({}) as primary model", geminiModel);
+            try {
+                return GoogleAiGeminiChatModel.builder()
+                        .apiKey(geminiApiKey)
+                        .modelName(geminiModel)
+                        .timeout(Duration.ofSeconds(15)) // Timeout agresivo para fallar rápido
+                        .build();
+            } catch (Exception e) {
+                log.error("Failed to initialize Gemini, falling back to local model: {}", e.getMessage());
+            }
         }
+
+        log.warn("Gemini not configured or API Key invalid. Directing traffic to Ollama.");
         return backupModel();
     }
 
@@ -53,7 +63,8 @@ public class LlmConfig {
         return OllamaChatModel.builder()
                 .baseUrl(ollamaBaseUrl)
                 .modelName(ollamaModel)
-                .timeout(Duration.ofSeconds(60))
+                .format("json") // Fuerza modo JSON en Ollama
+                .timeout(Duration.ofSeconds(180))
                 .logRequests(true)
                 .logResponses(true)
                 .maxRetries(0)

@@ -1,148 +1,276 @@
-# RCA Agent
+# RCA Agent 🤖
 
-> AI agent that automates Root Cause Analysis on distributed traces.
-> Receives a `trace_id`, fetches the complete span tree from Grafana Tempo,
-> correlates with Prometheus metrics, compares against historical baseline,
-> and produces structured RCA reports using LangChain4j with a hybrid LLM strategy.
+> An autonomous AI agent that diagnoses root causes of failures in distributed systems — analyzing OpenTelemetry traces and infrastructure metrics using a resilient hybrid LLM pipeline (Gemini Flash → Ollama fallback).
 
-[![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/projects/jdk/21/)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple?logo=kotlin)](https://kotlinlang.org/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.5-green?logo=springboot)](https://spring.io/projects/spring-boot)
-[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-2.9.0-blue)](https://opentelemetry.io/)
-[![CI/CD](https://github.com/kaeron-dev/rca-agent/actions/workflows/build.yml/badge.svg)](https://github.com/kaeron-dev/rca-agent/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Build](https://github.com/Mar10-Labs/rca-agent/actions/workflows/test.yml/badge.svg)](https://github.com/Mar10-Labs/rca-agent/actions)
+[![Java](https://img.shields.io/badge/Java-21-blue)](https://openjdk.org/projects/jdk/21/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple)](https://kotlinlang.org/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-green)](https://spring.io/projects/spring-boot)
+[![LangChain4j](https://img.shields.io/badge/LangChain4j-LLM-orange)](https://github.com/langchain4j/langchain4j)
 
 ---
 
 ## What it does
 
-Instead of manually inspecting traces in Grafana, you send a single request:
+When a microservice request goes slow or fails, finding the root cause across dozens of spans is tedious and slow. RCA Agent automates that entire workflow:
 
-```bash
-curl -X GET http://localhost:8080/api/analyze/{trace_id}
+1. Receives a `traceId` via REST
+2. Fetches the full span tree from Grafana Tempo
+3. Enriches each span with historical baseline data from H2
+4. Selects the optimal LLM and prompt strategy based on availability
+5. Returns a structured JSON report: root cause, anomaly type, confidence score, and actionable recommendation
+
 ```
-
-And get back a structured report:
-
-```json
-{
-    "traceId": "4518f5a66654f47eb21cf074bbd6015f",
-    "rootCause": "Slow SQL execution on payments table (2x baseline)",
-    "anomalySpan": "POST /orders",
-    "durationMs": 3074,
-    "baselineMs": 250,
-    "anomalyFactor": 12.296,
-    "recommendation": "Add index on transaction_id in order-service",
-    "confidence": 0.9,
-    "anomalyType": "DATABASE_SLOW_QUERY",
-    "highConfidence": true,
-    "anomaly": true
-}
+POST /api/analyze/{traceId}
+→ { rootCause, anomalyType, confidence, recommendation, anomalyFactor }
 ```
 
 ---
+## RCA Agent Architecture
 
-## High-Level Architecture
+This RCA Agent architecture features a hexagonal-based system that ingests telemetry from Kotlin services via an OTel/Prometheus/Tempo pipeline. 
+It processes distributed traces and metrics through specialized adapters to analyze system health. Finally, it leverages a Hybrid LLM Layer 
+(Gemini Flash as primary, Ollama Llama 3.2 as fallback) via LangChain4j to automate root cause diagnostics.
 
-The agent follows a strict **Hexagonal Architecture** (Ports & Adapters) to decouple business logic from infrastructure (Tempo, Prometheus, LLMs).
-
-```mermaid
-graph TD
-    User((User/SRE)) -->|GET /analyze| InAdapter[AnalyzeController]
-    
-    subgraph Domain_Layer
-        Service[TraceAnalysisService]
-        Entities[SpanTree / RcaReport]
-    end
-    
-    subgraph Ports
-        InPort[AnalyzeTraceUseCase]
-        OutPortRepo[TraceRepository]
-        OutPortLLM[RcaAnalyzer]
-        OutPortCache[RcaReportRepository]
-    end
-    
-    InAdapter --> InPort
-    InPort --> Service
-    Service --> OutPortRepo
-    Service --> OutPortLLM
-    Service --> OutPortCache
-    
-    OutPortRepo --> Tempo[Grafana Tempo]
-    OutPortLLM --> LLM[Hybrid LLM Strategy]
-    OutPortCache --> H2[(Local Cache H2)]
-```
+![Span Tree](docs/rca_agent_architecture.png)
 
 ---
 
-## Key Features (Production Grade)
 
-### 1. Hybrid Resilience LLM Strategy
-The agent uses a **"Survival First"** strategy for inference:
-*   **Main Model**: Attempts cloud inference via **Gemini Flash** (Fast & Free Tier).
-*   **Intelligent Fallback**: If Gemini fails (429 Quota Exceeded), it instantly switches to **Local Ollama** (Llama 3.2).
-*   **Quota Memory**: After a quota error, it skips Gemini for 60s to avoid unnecessary network lag.
-*   **Inference Semaphore**: Limits concurrent AI calls to prevent CPU saturation on local hardware.
 
-### 2. Smart Persistence (Cache-Aside)
-Analyses are **immutable and persistent**. The system checks the local database (H2) before calling the AI.
-*   **Deterministic**: Same traceId always returns the same diagnosis.
-*   **Fast**: Cached results return in <10ms vs 30s+ for AI inference.
-*   **Quality Gated**: Only high-confidence reports (>= 0.7) are stored in the permanent cache.
+## Span Tree — Real Anomaly Example
 
-### 3. Eventual Consistency Handling
-Tracing backends like Tempo are asynchronously indexed. The agent implements **Smart Polling**:
-*   If a trace is "shallow" (missing spans), it retries up to 5 times with exponential backoff.
-*   It waits until the **Ground Zero** anomaly is visible before generating the report.
+The image outlines an agent analysis logic that identifies a 15.5x latency spike in POST /payments and prunes the trace tree after confirming child spans are fast. 
+By contextualizing the 3100ms delay, an LLM diagnoses a DATABASE_SLOW_QUERY within the local service. It concludes by generating a report with 0.94 confidence, specifically recommending an index addition to resolve the anomaly.
+
+![Span Tree](docs/spantree_visualization.png)
 
 ---
 
 ## Stack
 
-| Component | Technology | Version |
-|---|---|---|
-| RCA Agent | Java 21 + LangChain4j | 21 LTS |
-| Microservices | Kotlin + Spring Boot | 2.0.21 / 3.3.5 |
-| Messaging | Apache Kafka (KRaft) | 7.7.0 |
-| Storage | H2 (Persistence) / Tempo (Traces) | — |
-| LLM | Gemini Flash / Ollama (Llama 3.2) | — |
+| Layer | Technology |
+|---|---|
+| Agent | Java 21, Spring Boot 3.3, LangChain4j |
+| Microservices | Kotlin 2.0, Spring Boot 3.3 |
+| Tracing | OpenTelemetry Java Agent, Grafana Tempo |
+| Metrics | Prometheus, Grafana |
+| Messaging | Apache Kafka |
+| LLM (primary) | Google Gemini Flash |
+| LLM (fallback) | Ollama llama3.2 (local, CPU) |
+| Persistence | H2 in-memory |
+| Resilience | Resilience4j — Circuit Breaker, Retry, Bulkhead, TimeLimiter |
 
 ---
 
-## Setup & Demo
+## Quick Start
 
-### 1. Initial Configuration
-Before starting the stack, you must create your local environment file:
+### Prerequisites
+
+- Docker Desktop — **minimum 8GB RAM** (Settings → Resources → Memory → 8192 MB)
+- Gemini API key (free tier): [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+### 1. Configure environment
+
 ```bash
 cp .env.example .env
+# Set GEMINI_API_KEY in .env
+# If left empty, the agent auto-degrades to Ollama mode
 ```
-Edit the `.env` file and provide your **GEMINI_API_KEY** if you wish to use the cloud model. By default, the system is configured to use **Ollama** (local).
 
-### 2. Start the Stack
+> ⚠️ Never commit `.env` — it is gitignored. `.env.example` must never contain real keys.
+
+### 2. Start the stack
+
 ```bash
-# Start all services (Tempo, Prometheus, Ollama, Kafka, Services)
 docker compose up -d
 ```
 
-### 2. Run Automated Demo
-The demo injects a database anomaly, captures the trace, and calls the agent:
+### 3. Run the demo
+
 ```bash
 ./scripts/demo.sh
 ```
 
----
+The script injects an anomaly, fires a real order request, captures the `traceId` from the response, waits for Tempo to index the trace, calls the agent, and prints the RCA report.
 
-## Production Roadmap ✅
-
-| Feature | Status | Architecture Decision |
+| Scenario | Command | Description |
 |---|---|---|
-| **Tempo Integration** | ✅ | Smart polling for eventual consistency |
-| **LLM Resilience** | ✅ | Automatic fallback Gemini -> Ollama |
-| **Caching Layer** | ✅ | Hexagonal persistence for immutable reports |
-| **Post-Processing** | ✅ | Heuristic inference for anomaly types |
-| **CI/CD Pipeline** | ✅ | GitHub Actions for build & test |
+| Slow payment | `./scripts/demo.sh` | 3s latency injected in `payment-service` |
+| Error storm | `./scripts/demo.sh errors` | 100% error rate on `payment-service` |
+| Cascade failure | `./scripts/demo.sh cascade` | Latency + errors across multiple services |
 
 ---
 
-## License
-MIT — see [LICENSE](LICENSE)
+## Demo Output
+
+End-to-end execution of the cascade failure scenario — latency injected in `payment-service` + error rate in `inventory-service`:
+
+```bash
+./scripts/demo.sh cascade
+
+═══════════════════════════════════════════════════
+  RCA Agent Demo — scenario: cascade
+═══════════════════════════════════════════════════
+▶ Step 0: Waiting for RCA Agent to be ready...
+ ✓ Ready
+
+▶ Step 1: Injecting anomaly...
+  ✓ payment-service: 3000ms latency injected
+  ✓ inventory-service: 80% error rate injected
+
+▶ Step 2: Firing request to order-service...
+  HTTP/1.1 200
+  {"orderId":"5acdca3e-1c15-4373-b2d6-9e1f43b10b1f","status":"FAILED","traceId":"215490281486b332bfabdcdfaef23eeb"}
+
+  ✓ trace_id: 215490281486b332bfabdcdfaef23eeb
+
+▶ Step 3: Waiting for Tempo to index trace...
+  ✓ Trace indexed after 0 retries
+
+▶ Step 4: Calling RCA agent...
+{
+  "traceId": "215490281486b332bfabdcdfaef23eeb",
+  "rootCause": "The POST /orders in the order-service is failing due to high latency downstream",
+  "anomalySpan": "POST /orders",
+  "durationMs": 3313,
+  "baselineMs": 250,
+  "anomalyFactor": 13.252,
+  "anomalyType": "HIGH_LATENCY_DOWNSTREAM",
+  "recommendation": "Optimize the database connection to improve performance",
+  "confidence": 0.8,
+  "highConfidence": true,
+  "anomaly": true
+}
+
+▶ Step 5: Resetting all anomaly injections...
+  ✓ All injections reset
+
+═══════════════════════════════════════════════════
+  Demo complete — scenario: cascade
+═══════════════════════════════════════════════════
+```
+
+---
+
+## Manual Usage
+
+```bash
+TRACE_ID=$(curl -s -X POST http://localhost:8081/orders \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "p1", "quantity": 2}' | jq -r '.traceId')
+
+curl -s http://localhost:8080/api/analyze/$TRACE_ID | jq
+```
+
+```json
+{
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "rootCause": "Slow SQL execution on payments table — full table scan detected",
+  "anomalySpan": "db.query SELECT payments",
+  "durationMs": 3980,
+  "baselineMs": 45,
+  "anomalyFactor": 88.4,
+  "recommendation": "ANALYZE payments; add composite index on (order_id, status)",
+  "confidence": 0.94
+}
+```
+
+---
+
+## AI Strategy & Resilience
+
+### Hybrid Fallback Pipeline
+
+```
+Request → [Gemini Flash] ── success ──────────────────────→ RCA Report
+                         └── quota / timeout / error ──→ [Ollama llama3.2] ── success → RCA Report
+                                                                             └── fail ──→ Deterministic fallback report
+```
+
+1. **Dynamic Prompt Strategy** — two prompt variants optimized per model:
+    - **Standard prompt** → Gemini: full span tree with OTel attributes, system metrics, multi-rule classification
+    - **Lite prompt** → Ollama: minimal context designed for 1b parameter constraints
+
+2. **Native JSON Mode** — Ollama is configured with `.format("json")` enforcing structured output at the inference level, not just as a prompt instruction
+
+3. **Quota Circuit Breaker** — if Gemini returns a 429, the agent stops cloud calls for 60 seconds and routes exclusively to Ollama using an `AtomicLong` timestamp
+
+### Resilience4j Patterns
+
+| Pattern | Applied to | Configuration |
+|---|---|---|
+| Circuit Breaker | Tempo | Opens at 100% failure rate, recovers after 30s |
+| Retry + Exponential Backoff | LLM | 3 attempts, 1s base, 2x multiplier |
+| Bulkhead | LLM | Max 5 concurrent calls, 2s wait |
+| TimeLimiter | Tempo / LLM | 5s / 60s hard timeout |
+
+---
+
+## Known Limitations
+
+**Ollama 1b model** — at 1 billion parameters, `llama3.2:1b` has a strong prior toward `DATABASE_SLOW_QUERY` regardless of actual span data. This is a fundamental model capability constraint, not a prompt engineering problem. The lite prompt and JSON mode mitigate parse failures but cannot fix reasoning quality. For accurate multi-signal classification use `llama3.2:3b` or higher, or configure Gemini.
+
+**LangChain4j Ollama client** — buffers the full response before returning. Streaming for structured outputs was not available at time of implementation, adding noticeable latency on CPU inference.
+
+**Baseline cold start** — on first run with no history in H2, all services default to 200ms baseline. This may produce false positives for fast-completing spans until enough requests are processed.
+
+**Tempo API** — the adapter uses `/api/traces/` (v1) which returns `batches[]`. `SpanTreeMapper` handles both `batches` and `resourceSpans` transparently. If your Tempo instance exposes `/api/v2/`, update the URI in `TempoTraceAdapter`.
+
+---
+
+## Observability URLs
+
+| Tool | URL | Credentials |
+|---|---|---|
+| Grafana | http://localhost:3000 | admin / admin |
+| RCA Agent API | http://localhost:8080/api/analyze/{traceId} | — |
+| Prometheus | http://localhost:9090 | — |
+| Tempo | http://localhost:3200 | — |
+
+---
+
+## Project Structure
+
+```
+rca-agent/
+├── agent/                          # Java 21 — the RCA agent
+│   └── src/main/java/com/rcaagent/
+│       ├── adapters/in/            # REST controllers (inbound)
+│       ├── adapters/out/           # Tempo, Prometheus, LLM, H2 (outbound)
+│       ├── application/            # Use case orchestration
+│       ├── domain/                 # Pure domain objects — no framework deps
+│       ├── infrastructure/         # Spring config, health indicators
+│       └── ports/                  # Port interfaces (in/out)
+├── services/                       # Kotlin 2.0 microservices
+│   ├── order-service/
+│   ├── payment-service/
+│   ├── inventory-service/
+│   └── notification-service/
+├── infra/                          # Tempo, Prometheus, Grafana, OTel config
+├── scripts/
+│   ├── demo.sh                     # End-to-end demo with anomaly injection
+│   └── benchmark.sh                # Accuracy evaluation runner
+└── docker-compose.yml
+```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_MODE` | `gemini` | `gemini` or `ollama` |
+| `GEMINI_API_KEY` | _(empty)_ | Google AI Studio key — if empty, auto-routes to Ollama |
+| `LLM_STANDARD_MODEL` | `gemini-1.5-flash` | Gemini model name |
+| `LLM_LOCAL_MODEL` | `llama3.2:1b` | Ollama model name |
+| `TEMPO_URL` | `http://tempo:3200` | Tempo base URL |
+| `PROMETHEUS_URL` | `http://prometheus:9090` | Prometheus base URL |
+| `OLLAMA_URL` | `http://ollama:11434` | Ollama base URL |
+| `RCA_CONFIDENCE_THRESHOLD` | `0.75` | Minimum confidence for high-confidence flag |
+
+---
+
+*Built following SOLID principles and Hexagonal Architecture to demonstrate the viability of AI agents in platform engineering.*
+
+**Mar10-Labs** — [GitHub](https://github.com/Mar10-Labs)

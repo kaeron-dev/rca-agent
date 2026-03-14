@@ -22,8 +22,18 @@ public class RcaPromptBuilder {
     private RcaPromptBuilder() {}
 
     public static String build(TraceContext context) {
-        var anomaly = context.anomalySpan();
+        return build(context, false);
+    }
 
+    public static String build(TraceContext context, boolean isLite) {
+        if (isLite) {
+            return buildLite(context);
+        }
+        return buildStandard(context);
+    }
+
+    private static String buildStandard(TraceContext context) {
+        var anomaly = context.anomalySpan();
         return """
                 # TASK: Root Cause Analysis (RCA)
                 # RESPONSE: STRICT JSON ONLY. NO PROSE.
@@ -70,6 +80,33 @@ public class RcaPromptBuilder {
                 buildCompactSpanTree(context),
                 buildMetrics(context.metrics()),
                 context.baselineDeviationPct()
+        );
+    }
+
+    private static String buildLite(TraceContext context) {
+        var anomaly = context.anomalySpan();
+        String status = anomaly.status() != null ? anomaly.status().name() : "UNKNOWN";
+        
+        return """
+                # RCA TASK (LITE)
+                Analyze why %s in %s is failing.
+                - Duration: %d ms (baseline %d ms)
+                - Status: %s
+                - Anomaly type could be: [DATABASE_SLOW_QUERY, HIGH_LATENCY_DOWNSTREAM, ERROR_RESPONSE]
+                
+                Return ONLY JSON:
+                {
+                  "rootCause": "Short reason why (check status and duration)",
+                  "anomalyType": "Choose one of the three above",
+                  "confidence": 0.8,
+                  "recommendation": "Fix action"
+                }
+                """.formatted(
+                anomaly.operationName(),
+                anomaly.serviceName(),
+                anomaly.durationMs(),
+                context.baselineMs(),
+                status
         );
     }
 
