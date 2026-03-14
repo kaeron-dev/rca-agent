@@ -29,6 +29,12 @@ public record SpanTree(
                 .toList();
     }
 
+    public Span maxDeviationSpan() {
+        return spans.stream()
+                .max(Comparator.comparingDouble(s -> (double) s.durationMs() / Math.max(1, s.baselineMs())))
+                .orElseThrow(() -> new IllegalStateException("SpanTree has no spans"));
+    }
+
     public long totalDurationMs() {
         return spans.stream()
                 .filter(Span::isRoot)

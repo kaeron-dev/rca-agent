@@ -115,11 +115,11 @@ public class EvaluationService {
         return new Span(
                 (String) raw.get("spanId"),
                 (String) raw.getOrDefault("parentSpanId", null),
-                (String) raw.get("operation"),
-                (String) raw.get("service"),
+                (String) raw.get("operationName"),
+                (String) raw.get("serviceName"),
                 toLong(raw.get("durationMs")),
-                SpanStatus.OK,
                 toLong(raw.getOrDefault("baselineMs", 0)),
+                SpanStatus.OK,
                 toLong(raw.getOrDefault("startTimeMs", 0)),
                 stringAttrs
         );

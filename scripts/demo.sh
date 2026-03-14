@@ -23,6 +23,14 @@ echo "════════════════════════�
 echo "  RCA Agent Demo — scenario: $SCENARIO"
 echo "═══════════════════════════════════════════════════"
 
+# ── Step 0: Wait for RCA Agent ────────────────────────
+echo "▶ Step 0: Waiting for RCA Agent to be ready..."
+until curl -s "$RCA_AGENT/actuator/health" | grep -q "UP"; do
+  echo -n "."
+  sleep 1
+done
+echo " ✓ Ready"
+
 # ── Step 1: Inject anomaly ────────────────────────────
 echo ""
 echo "▶ Step 1: Injecting anomaly..."
@@ -55,35 +63,40 @@ echo "  Response headers and body:"
 echo "$RESPONSE" | head -20
 
 # ── Step 3: Extract trace_id ──────────────────────────
-TRACE_ID=$(echo "$RESPONSE" | grep -i "x-trace-id" | awk '{print $2}' | tr -d '\r' | head -1)
+echo ""
+TRACE_ID=$(echo "$RESPONSE" | grep "{" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data.get('traceId', ''))" 2>/dev/null)
 
 if [ -z "$TRACE_ID" ]; then
-  echo ""
-  echo "  ✗ No X-Trace-Id header — extracting from Tempo..."
-  sleep 3
-  TRACE_ID=$(curl -s "http://localhost:3200/api/search?tags=service.name%3Dorder-service&limit=1" \
-    | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['traces'][0]['traceID'])" 2>/dev/null)
-fi
-
-if [ -z "$TRACE_ID" ]; then
-  echo "  ✗ Could not extract trace_id. Check that services are healthy."
-  curl -s -X POST "$PAYMENT_SERVICE/demo/reset" > /dev/null
-  curl -s -X POST "$INVENTORY_SERVICE/demo/reset" > /dev/null
+  echo "  ✗ Could not extract trace_id from response JSON."
   exit 1
 fi
 
 echo "  ✓ trace_id: $TRACE_ID"
 
-# ── Step 4: Wait for Tempo ingestion ─────────────────
+# ── Step 4: Wait for Tempo ingestion (Polling) ───────
 echo ""
-echo "▶ Step 3: Waiting 3s for Tempo to ingest the trace..."
-sleep 3
+echo "▶ Step 3: Waiting for Tempo to index trace $TRACE_ID..."
+MAX_RETRIES=10
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:3200/api/traces/$TRACE_ID")
+  if [ "$STATUS" -eq 200 ]; then
+    echo "  ✓ Trace indexed after $RETRY_COUNT retries"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT+1))
+  sleep 0.5
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+  echo "  ⚠ Warning: Trace might not be fully indexed yet, proceeding anyway..."
+fi
 
 # ── Step 5: Call RCA agent ────────────────────────────
 echo ""
 echo "▶ Step 4: Calling RCA agent..."
 echo ""
-RCA_REPORT=$(curl -s -X POST "$RCA_AGENT/api/analyze/$TRACE_ID")
+RCA_REPORT=$(curl -s --max-time 60 -X GET "$RCA_AGENT/api/analyze/$TRACE_ID")
 echo "$RCA_REPORT" | python3 -m json.tool 2>/dev/null || echo "$RCA_REPORT"
 
 # ── Step 6: Reset all injections ─────────────────────

@@ -1,6 +1,7 @@
 package com.rcaagent.order.adapters.`in`
 
 import com.rcaagent.order.ports.`in`.CreateOrderUseCase
+import io.opentelemetry.api.trace.Span
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -16,7 +17,8 @@ class OrderController(
         val order = createOrderUseCase.createOrder(request.productId, request.quantity)
         return OrderResponse(
             orderId = order.id,
-            status  = order.status.name
+            status  = order.status.name,
+            traceId = Span.current().spanContext.traceId
         )
     }
 }

@@ -19,3 +19,9 @@ storage:
 compactor:
   compaction:
     block_retention: 48h
+
+ingester:
+  trace_idle_period: 3s
+  max_block_bytes: 1_000_000
+  max_block_duration: 5s
+  flush_check_period: 2s

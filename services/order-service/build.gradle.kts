@@ -13,5 +13,6 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.8.1")
+    implementation("io.opentelemetry:opentelemetry-api:1.43.0")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }

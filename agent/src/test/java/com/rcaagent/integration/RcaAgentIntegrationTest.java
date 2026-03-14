@@ -73,8 +73,8 @@ class RcaAgentIntegrationTest {
     @Test
     @DisplayName("RcaAnalyzer — analyze returns non-null report for valid TraceContext")
     void rcaAnalyzer_analyze_returnsReport() {
-        var span    = new Span("s1", null, "db.query", "payment-service", 4750L, SpanStatus.OK,
-                               45L, 0L, Map.of("db.statement", "SELECT * FROM payments",
+        var span    = new Span("s1", null, "db.query", "payment-service", 4750L,
+                    45L, SpanStatus.OK, 0L, Map.of("db.statement", "SELECT * FROM payments",
                                                 "db.rows_returned", "15000"));
         var tree    = new SpanTree("integration-trace-001", List.of(span));
         var context = new TraceContext(tree, span, 45L, 2.0, List.of());
@@ -92,8 +92,8 @@ class RcaAgentIntegrationTest {
     @Test
     @DisplayName("RcaAnalyzer — degraded report returned when LLM unavailable")
     void rcaAnalyzer_llmUnavailable_returnsDegradedReport() {
-        var span    = new Span("s1", null, "processPayment", "payment-service", 5000L, SpanStatus.OK,
-                               80L, 0L, Map.of());
+        var span    = new Span("s1", null, "processPayment", "payment-service", 5000L, 80L, SpanStatus.OK,
+                                0L, Map.of());
         var tree    = new SpanTree("integration-trace-002", List.of(span));
         var context = new TraceContext(tree, span, 80L, 2.0, List.of());
 
