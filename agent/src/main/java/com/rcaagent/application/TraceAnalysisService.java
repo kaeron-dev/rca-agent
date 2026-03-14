@@ -1,6 +1,7 @@
 package com.rcaagent.application;
 
 import com.rcaagent.domain.RcaReport;
+import com.rcaagent.domain.Span;
 import com.rcaagent.domain.SpanTree;
 import com.rcaagent.domain.TraceContext;
 import com.rcaagent.domain.validation.DomainGuard;
@@ -8,52 +9,68 @@ import com.rcaagent.ports.in.AnalyzeTraceUseCase;
 import com.rcaagent.ports.out.MetricsRepository;
 import com.rcaagent.ports.out.RcaAnalyzer;
 import com.rcaagent.ports.out.TraceRepository;
+import com.rcaagent.ports.out.RcaReportRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Core use case — orchestrates the RCA analysis pipeline.
- *
- * Knows WHAT to do — not HOW to connect to external systems.
- * Depends only on port interfaces — testable without Docker.
- */
+import java.util.List;
+
 @Service
 public class TraceAnalysisService implements AnalyzeTraceUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(TraceAnalysisService.class);
 
     private final TraceRepository traceRepository;
     private final MetricsRepository metricsRepository;
     private final RcaAnalyzer rcaAnalyzer;
+    private final RcaReportRepository rcaReportRepository;
 
     public TraceAnalysisService(
             TraceRepository traceRepository,
             MetricsRepository metricsRepository,
-            RcaAnalyzer rcaAnalyzer
+            RcaAnalyzer rcaAnalyzer,
+            RcaReportRepository rcaReportRepository
     ) {
-        DomainGuard.requireNonNull(traceRepository, "traceRepository");
-        DomainGuard.requireNonNull(metricsRepository, "metricsRepository");
-        DomainGuard.requireNonNull(rcaAnalyzer, "rcaAnalyzer");
-        this.traceRepository = traceRepository;
-        this.metricsRepository = metricsRepository;
-        this.rcaAnalyzer = rcaAnalyzer;
+        DomainGuard.requireNonNull(traceRepository,      "traceRepository");
+        DomainGuard.requireNonNull(metricsRepository,    "metricsRepository");
+        DomainGuard.requireNonNull(rcaAnalyzer,          "rcaAnalyzer");
+        DomainGuard.requireNonNull(rcaReportRepository,  "rcaReportRepository");
+        this.traceRepository     = traceRepository;
+        this.metricsRepository   = metricsRepository;
+        this.rcaAnalyzer         = rcaAnalyzer;
+        this.rcaReportRepository = rcaReportRepository;
     }
 
-    /**
-     * Analysis pipeline:
-     *   1. Fetch span tree from trace backend
-     *   2. Identify the slowest span
-     *   3. Fetch historical baseline for that service
-     *   4. Build TraceContext — anomalyFactor computed inside TraceContext
-     *   5. Delegate to LLM analyzer
-     */
     @Override
     public RcaReport analyze(String traceId) {
         DomainGuard.requireNonBlank(traceId, "traceId");
 
-        SpanTree spanTree = traceRepository.findByTraceId(traceId);
-        var anomalySpan = spanTree.slowestSpan();
-        long baselineMs = metricsRepository.getBaseline(anomalySpan.serviceName());
+        // 1. Check if we already have a high-confidence report for this trace
+        var existingReport = rcaReportRepository.findByTraceId(traceId);
+        if (existingReport.isPresent() && existingReport.get().confidence() >= 0.7) {
+            log.info("Returning cached high-confidence RCA report for traceId: {}", traceId);
+            return existingReport.get();
+        }
 
-        var context = new TraceContext(spanTree, anomalySpan, baselineMs);
+        // 2. Perform fresh analysis if no cache or low confidence
+        log.info("Performing fresh RCA analysis for traceId: {}", traceId);
+        SpanTree rawTree = traceRepository.findByTraceId(traceId);
 
-        return rcaAnalyzer.analyze(context);
+        List<Span> enrichedSpans = rawTree.spans().stream()
+                .map(span -> span.withBaseline(metricsRepository.getBaseline(span.serviceName())))
+                .toList();
+
+        SpanTree enrichedTree = new SpanTree(traceId, enrichedSpans);
+        Span anomalySpan      = enrichedTree.maxDeviationSpan();
+
+        RcaReport newReport = rcaAnalyzer.analyze(new TraceContext(enrichedTree, anomalySpan, anomalySpan.baselineMs()));
+
+        // 3. Persist ONLY if result is high confidence (avoid caching failures)
+        if (newReport.confidence() >= 0.7) {
+            rcaReportRepository.save(newReport);
+        }
+
+        return newReport;
     }
 }
