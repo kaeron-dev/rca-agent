@@ -111,7 +111,14 @@ Tracing backends like Tempo are asynchronously indexed. The agent implements **S
 
 ## Setup & Demo
 
-### 1. Start the Stack
+### 1. Initial Configuration
+Before starting the stack, you must create your local environment file:
+```bash
+cp .env.example .env
+```
+Edit the `.env` file and provide your **GEMINI_API_KEY** if you wish to use the cloud model. By default, the system is configured to use **Ollama** (local).
+
+### 2. Start the Stack
 ```bash
 # Start all services (Tempo, Prometheus, Ollama, Kafka, Services)
 docker compose up -d
