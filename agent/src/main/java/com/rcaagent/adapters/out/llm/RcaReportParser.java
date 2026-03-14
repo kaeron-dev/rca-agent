@@ -10,11 +10,7 @@ import java.util.Map;
 
 /**
  * Parses the LLM JSON response into a domain RcaReport.
- *
- * What to study here:
- *   - SRP: parsing is isolated here — LangChain4jRcaAdapter doesn't parse
- *   - Defensive parsing: LLMs don't always return perfect JSON
- *   - Fallback: if parsing fails, returns a partial report with the raw LLM text
+ * Includes heuristic fallback for perezoso/small models.
  */
 public class RcaReportParser {
 
@@ -32,6 +28,12 @@ public class RcaReportParser {
             String rootCause      = (String) parsed.getOrDefault("rootCause", "Unknown root cause");
             String recommendation = (String) parsed.getOrDefault("recommendation", "No recommendation available");
             double confidence     = toDouble(parsed.getOrDefault("confidence", 0.5));
+            String anomalyType    = (String) parsed.getOrDefault("anomalyType", "UNKNOWN");
+
+            // Heuristic Fallback: Si el modelo 1b es perezoso y no clasifica bien, ayudamos.
+            if ("UNKNOWN".equalsIgnoreCase(anomalyType) || anomalyType.contains("<")) {
+                anomalyType = inferAnomalyType(rootCause, context);
+            }
 
             return new RcaReport(
                     context.traceId(),
@@ -41,27 +43,43 @@ public class RcaReportParser {
                     context.baselineMs(),
                     context.anomalyFactor(),
                     recommendation,
-                    confidence
+                    confidence,
+                    anomalyType
             );
         } catch (Exception e) {
-            log.warn("Failed to parse LLM response as JSON. Returning partial report. Response: {}", llmResponse);
+            log.warn("Failed to parse LLM response as JSON. Response: {}", llmResponse);
             return new RcaReport(
                     context.traceId(),
-                    "LLM response could not be parsed: " + llmResponse.substring(0, Math.min(100, llmResponse.length())),
+                    "Parsing error: " + e.getMessage(),
                     context.anomalySpan().operationName(),
                     context.anomalySpan().durationMs(),
                     context.baselineMs(),
                     context.anomalyFactor(),
                     "Manual investigation required",
-                    0.0
+                    0.0,
+                    "UNKNOWN"
             );
         }
+    }
+
+    private static String inferAnomalyType(String rootCause, TraceContext context) {
+        String cause = rootCause.toLowerCase();
+        if (cause.contains("sql") || cause.contains("database") || cause.contains("db.") || cause.contains("query")) {
+            return "DATABASE_SLOW_QUERY";
+        }
+        if (cause.contains("http") || cause.contains("downstream") || cause.contains("service call")) {
+            return "HIGH_LATENCY_DOWNSTREAM";
+        }
+        if (cause.contains("cpu") || cause.contains("memory") || cause.contains("limit") || cause.contains("exhausted")) {
+            return "RESOURCE_EXHAUSTION";
+        }
+        return "UNKNOWN";
     }
 
     private static String extractJson(String text) {
         int start = text.indexOf('{');
         int end   = text.lastIndexOf('}');
-        if (start == -1 || end == -1) throw new IllegalArgumentException("No JSON found in LLM response");
+        if (start == -1 || end == -1) throw new IllegalArgumentException("No JSON found");
         return text.substring(start, end + 1);
     }
 
