@@ -48,7 +48,7 @@ class RcaReportParserTest {
 
         assertThat(report.traceId()).isEqualTo("trace-003");
         assertThat(report.confidence()).isEqualTo(0.0);
-        assertThat(report.rootCause()).contains("Parsing error");
+        assertThat(report.rootCause()).contains("Analysis error");
     }
 
     @Test
