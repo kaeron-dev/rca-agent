@@ -9,8 +9,13 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 
 /**
- * Parses the LLM JSON response into a domain RcaReport.
- * Includes heuristic fallback for perezoso/small models.
+ * Parsing Engine for LLM responses.
+ * Decouples the raw LLM output from the domain RcaReport.
+ *
+ * Features:
+ *   - Defensive Parsing: Extracts JSON blocks from surrounding prose.
+ *   - Intelligent Heuristics: Infers anomaly types when LLM classification is absent or genric.
+ *   - Error Resilience: Returns partial reports instead of throwing exceptions on malformed input.
  */
 public class RcaReportParser {
 
@@ -19,6 +24,10 @@ public class RcaReportParser {
 
     private RcaReportParser() {}
 
+    /**
+     * Translates LLM text to a structured RcaReport.
+     * Uses heuristic fallback if the LLM output is incomplete.
+     */
     @SuppressWarnings("unchecked")
     public static RcaReport parse(String llmResponse, TraceContext context) {
         try {
@@ -30,7 +39,7 @@ public class RcaReportParser {
             double confidence     = toDouble(parsed.getOrDefault("confidence", 0.5));
             String anomalyType    = (String) parsed.getOrDefault("anomalyType", "UNKNOWN");
 
-            // Heuristic Fallback: Si el modelo 1b es perezoso y no clasifica bien, ayudamos.
+            // Heuristic Fallback: Improve classification for small/lazy models
             if ("UNKNOWN".equalsIgnoreCase(anomalyType) || anomalyType.contains("<")) {
                 anomalyType = inferAnomalyType(rootCause, context);
             }
@@ -47,10 +56,10 @@ public class RcaReportParser {
                     anomalyType
             );
         } catch (Exception e) {
-            log.warn("Failed to parse LLM response as JSON. Response: {}", llmResponse);
+            log.warn("Failed to parse LLM response. Response: {}", llmResponse);
             return new RcaReport(
                     context.traceId(),
-                    "Parsing error: " + e.getMessage(),
+                    "Analysis error: " + e.getMessage(),
                     context.anomalySpan().operationName(),
                     context.anomalySpan().durationMs(),
                     context.baselineMs(),
@@ -62,6 +71,9 @@ public class RcaReportParser {
         }
     }
 
+    /**
+     * Heuristic inference based on keywords in the root cause explanation.
+     */
     private static String inferAnomalyType(String rootCause, TraceContext context) {
         String cause = rootCause.toLowerCase();
         if (cause.contains("sql") || cause.contains("database") || cause.contains("db.") || cause.contains("query")) {
@@ -79,7 +91,7 @@ public class RcaReportParser {
     private static String extractJson(String text) {
         int start = text.indexOf('{');
         int end   = text.lastIndexOf('}');
-        if (start == -1 || end == -1) throw new IllegalArgumentException("No JSON found");
+        if (start == -1 || end == -1) throw new IllegalArgumentException("No JSON block found");
         return text.substring(start, end + 1);
     }
 

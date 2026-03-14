@@ -4,6 +4,13 @@ import com.rcaagent.domain.RcaReport;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
+/**
+ * Persistence Entity for RCA Reports.
+ * Maps the domain RcaReport to the 'rca_reports' H2 table.
+ *
+ * Design Note: Fields are expanded into columns rather than serialized as JSON
+ * to allow future SQL-based analytics on root causes and confidence levels.
+ */
 @Entity
 @Table(name = "rca_reports")
 public class RcaReportRecord {
@@ -41,6 +48,9 @@ public class RcaReportRecord {
 
     public RcaReportRecord() {}
 
+    /**
+     * Converts a domain object to a database record.
+     */
     public RcaReportRecord(RcaReport report) {
         this.traceId = report.traceId();
         this.rootCause = report.rootCause();
@@ -54,6 +64,9 @@ public class RcaReportRecord {
         this.analyzedAt = LocalDateTime.now();
     }
 
+    /**
+     * Converts this database record back to a domain object.
+     */
     public RcaReport toDomain() {
         return new RcaReport(
                 traceId,

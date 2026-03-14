@@ -6,6 +6,13 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 
+/**
+ * H2 Implementation of the RcaReportRepository port.
+ * Provides immutable storage for trace analyses.
+ *
+ * Design Decision: Reports are cached locally to minimize expensive LLM inference
+ * and ensure consistent diagnostics for the same traceId.
+ */
 @Component
 public class H2RcaReportAdapter implements RcaReportRepository {
 
