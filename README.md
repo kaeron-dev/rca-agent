@@ -196,6 +196,12 @@ Request → [Gemini Flash] ── success ────────────�
 
 3. **Quota Circuit Breaker** — if Gemini returns a 429, the agent stops cloud calls for 60 seconds and routes exclusively to Ollama using an `AtomicLong` timestamp
 
+### Gemini Quota & Versioning
+
+The Gemini Flash free tier has aggressive rate limits (15 RPM), which initially caused cascading failures. The agent now specifically detects `429 RESOURCE_EXHAUSTED` errors and automatically skips Gemini for 60 seconds, falling back to Ollama.
+
+Additionally, older models like `gemini-1.5-flash` have been retired, leading to `404` errors. This project is configured for `gemini-3.1-flash-lite` (current stable), but you can switch to `gemini-2.5-flash` or `gemini-3-flash` by updating `LLM_STANDARD_MODEL` in your `.env`.
+
 ### Resilience4j Patterns
 
 | Pattern | Applied to | Configuration |
@@ -262,7 +268,7 @@ rca-agent/
 |---|---|---|
 | `LLM_MODE` | `gemini` | `gemini` or `ollama` |
 | `GEMINI_API_KEY` | _(empty)_ | Google AI Studio key — if empty, auto-routes to Ollama |
-| `LLM_STANDARD_MODEL` | `gemini-1.5-flash` | Gemini model name |
+| `LLM_STANDARD_MODEL` | `gemini-3.1-flash-lite` | Gemini model name |
 | `LLM_LOCAL_MODEL` | `llama3.2:1b` | Ollama model name |
 | `TEMPO_URL` | `http://tempo:3200` | Tempo base URL |
 | `PROMETHEUS_URL` | `http://prometheus:9090` | Prometheus base URL |

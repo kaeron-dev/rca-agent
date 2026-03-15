@@ -28,19 +28,30 @@ echo "════════════════════════�
 
 # ── Check agent is up ────────────────────────────────
 echo ""
-echo "▶ Checking agent health..."
-HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "$RCA_AGENT/actuator/health")
-if [ "$HEALTH" != "200" ]; then
-  echo "  ✗ Agent not healthy (HTTP $HEALTH). Start the stack first:"
-  echo "    docker compose up -d"
+echo "▶ Waiting for RCA Agent to be ready..."
+MAX_RETRIES=30
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "$RCA_AGENT/actuator/health" || echo "000")
+  if [ "$HEALTH" = "200" ]; then
+    echo "  ✓ Agent ready"
+    break
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  echo -n "."
+  sleep 2
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+  echo "  ✗ Agent timed out. Start the stack first: docker compose up -d"
   exit 1
 fi
-echo "  ✓ Agent healthy"
 
 if [ "$MODE" = "--live" ]; then
   # ── Live mode: inject each trace individually ────────
   echo ""
   echo "▶ Running live evaluation against /api/analyze..."
+  echo "  (Note: adding 5s delay between traces to respect Gemini Rate Limits)"
   echo ""
 
   DATASET="agent/src/test/resources/dataset/labeled_traces.json"
@@ -54,7 +65,7 @@ if [ "$MODE" = "--live" ]; then
   declare -A TYPE_TOTAL
   declare -A TYPE_CORRECT
 
-  # Parse dataset with python3 — available in all Linux/Mac environments
+  # Parse dataset with python3
   TRACE_IDS=$(python3 -c "
 import json, sys
 with open('$DATASET') as f:
@@ -66,10 +77,16 @@ for t in data:
   RESULTS=""
 
   while IFS='|' read -r TRACE_ID EXPECTED_TYPE EXPECTED_SPAN; do
+    TOTAL=$TOTAL
+    # El incremento de TOTAL se hace dentro para evitar problemas de subshell
     TOTAL=$((TOTAL + 1))
     TYPE_TOTAL[$EXPECTED_TYPE]=$((${TYPE_TOTAL[$EXPECTED_TYPE]:-0} + 1))
 
     RESPONSE=$(curl -s -X POST "$RCA_AGENT/api/analyze/$TRACE_ID" 2>/dev/null)
+    
+    # Pausa para evitar error 429 en Gemini Free Tier (max 15 RPM)
+    sleep 5
+
     ACTUAL_TYPE=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('anomalyType','UNKNOWN'))" 2>/dev/null || echo "ERROR")
     CONFIDENCE=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('confidence',0.0))" 2>/dev/null || echo "0.0")
 

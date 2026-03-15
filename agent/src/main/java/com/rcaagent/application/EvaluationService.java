@@ -8,6 +8,8 @@ import com.rcaagent.ports.out.RcaAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -32,16 +34,26 @@ public class EvaluationService {
 
     private final RcaAnalyzer rcaAnalyzer;
     private final EvaluationPersistenceAdapter persistenceAdapter;
+    private final ResourceLoader resourceLoader;
     private final double confidenceThreshold;
 
     public EvaluationService(
             RcaAnalyzer rcaAnalyzer,
             EvaluationPersistenceAdapter persistenceAdapter,
+            ResourceLoader resourceLoader,
             @Value("${rca.confidence.threshold:0.75}") double confidenceThreshold
     ) {
         this.rcaAnalyzer          = rcaAnalyzer;
         this.persistenceAdapter   = persistenceAdapter;
+        this.resourceLoader       = resourceLoader;
         this.confidenceThreshold  = confidenceThreshold;
+    }
+
+    public Optional<TraceContext> findContextById(String traceId) {
+        return loadDataset().stream()
+                .filter(t -> traceId.equals(t.get("traceId")))
+                .findFirst()
+                .map(this::buildTraceContext);
     }
 
     public AccuracyReport evaluate() {
@@ -49,7 +61,16 @@ public class EvaluationService {
         log.info("Starting evaluation — {} traces in dataset", dataset.size());
 
         var entries = dataset.stream()
-                .map(this::evaluateTrace)
+                .map(trace -> {
+                    try {
+                        // Pausa de 5s para respetar el Rate Limit de Gemini Free (15 RPM)
+                        Thread.sleep(5000);
+                        return evaluateTrace(trace);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return Optional.<EvaluationEntry>empty();
+                    }
+                })
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .collect(Collectors.toList());
@@ -137,10 +158,11 @@ public class EvaluationService {
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> loadDataset() {
-        try (InputStream is = getClass().getResourceAsStream("/dataset/labeled_traces.json")) {
-            if (is == null) throw new IllegalStateException("Dataset not found at /dataset/labeled_traces.json");
+        Resource resource = resourceLoader.getResource("classpath:/dataset/labeled_traces.json");
+        try (InputStream is = resource.getInputStream()) {
             return MAPPER.readValue(is, new TypeReference<>() {});
         } catch (Exception e) {
+            log.error("Failed to load dataset from classpath:/dataset/labeled_traces.json. Error: {}", e.getMessage());
             throw new IllegalStateException("Failed to load evaluation dataset", e);
         }
     }

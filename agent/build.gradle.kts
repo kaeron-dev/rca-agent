@@ -36,6 +36,7 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
     implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.2.0")
     implementation("io.github.resilience4j:resilience4j-retry:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-ratelimiter:2.2.0")
     implementation("io.github.resilience4j:resilience4j-timelimiter:2.2.0")
     implementation("io.github.resilience4j:resilience4j-bulkhead:2.2.0")
     implementation("org.springframework.boot:spring-boot-starter-aop")

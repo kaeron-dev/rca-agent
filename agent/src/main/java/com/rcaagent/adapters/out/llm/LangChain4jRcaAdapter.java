@@ -5,6 +5,7 @@ import com.rcaagent.domain.TraceContext;
 import com.rcaagent.ports.out.RcaAnalyzer;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -33,6 +34,7 @@ public class LangChain4jRcaAdapter implements RcaAnalyzer {
 
     @Override
     @Bulkhead(name = "llm", fallbackMethod = "fallback")
+    @RateLimiter(name = "llm", fallbackMethod = "fallback")
     public synchronized RcaReport analyze(TraceContext context) {
         var prompt = RcaPromptBuilder.build(context);
 

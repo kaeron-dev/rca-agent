@@ -28,12 +28,13 @@ class TraceAnalysisServiceTest {
     @Mock private MetricsRepository metricsRepository;
     @Mock private RcaAnalyzer rcaAnalyzer;
     @Mock private RcaReportRepository rcaReportRepository;
+    @Mock private EvaluationService evaluationService;
 
     private TraceAnalysisService service;
 
     @BeforeEach
     void setUp() {
-        service = new TraceAnalysisService(traceRepository, metricsRepository, rcaAnalyzer, rcaReportRepository);
+        service = new TraceAnalysisService(traceRepository, metricsRepository, rcaAnalyzer, rcaReportRepository, evaluationService);
     }
 
     private Span span(String spanId, String parent, String operation, String svc, long durationMs) {

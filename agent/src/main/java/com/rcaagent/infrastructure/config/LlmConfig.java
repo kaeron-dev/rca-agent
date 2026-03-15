@@ -31,7 +31,7 @@ public class LlmConfig {
     @Value("${llm.gemini.api-key:}")
     private String geminiApiKey;
 
-    @Value("${llm.gemini.model:gemini-1.5-flash}")
+    @Value("${llm.gemini.model:gemini-3.1-flash-lite}")
     private String geminiModel;
 
     @Bean
