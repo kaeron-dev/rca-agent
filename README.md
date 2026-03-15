@@ -2,6 +2,7 @@
 
 > An autonomous AI agent that diagnoses root causes of failures in distributed systems — analyzing OpenTelemetry traces and infrastructure metrics using a resilient hybrid LLM pipeline (Gemini Flash → Ollama fallback).
 
+[![Medium](https://img.shields.io/badge/Medium-Read%20Article-black?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@magam.2004/can-an-llm-read-a-distributed-trace-2db33721992a)
 [![Build](https://github.com/Mar10-Labs/rca-agent/actions/workflows/test.yml/badge.svg)](https://github.com/Mar10-Labs/rca-agent/actions)
 [![Java](https://img.shields.io/badge/Java-21-blue)](https://openjdk.org/projects/jdk/21/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple)](https://kotlinlang.org/)
